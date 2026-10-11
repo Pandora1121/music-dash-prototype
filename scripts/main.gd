@@ -3,6 +3,7 @@ extends Control
 const PlayerScene = preload("res://scenes/player.tscn")
 const ObstacleScene = preload("res://scenes/obstacle.tscn")
 const LevelControllerScript = preload("res://scripts/level_controller.gd")
+const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
 
 const ACCENT := Color("43f5ff")
 const MUTED := Color("8a9bbc")
@@ -18,9 +19,13 @@ var _status_label: Label
 var _progress_label: Label
 var _overlay: PanelContainer
 var _jump_count := 0
+var _audio_conductor: Node
 
 func _ready() -> void:
 	_ensure_input_actions()
+	_audio_conductor = AudioConductorScript.new()
+	_audio_conductor.name = "AudioConductor"
+	add_child(_audio_conductor)
 	_level = LevelControllerScript.new()
 	_level.name = "LevelController"
 	add_child(_level)
@@ -28,14 +33,16 @@ func _ready() -> void:
 	_level.completed.connect(_finish_level)
 	_build_menu()
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if screen_state != &"playing":
 		return
-	_level.advance(delta)
+	var song_position: float = _audio_conductor.song_position()
+	_audio_conductor.consume_beats_until(song_position)
+	_level.advance(song_position, _audio_conductor.audio_offset_seconds, _audio_conductor.bpm)
 	if is_instance_valid(_player):
-		_player.timing_position = _level.elapsed
+		_player.timing_position = song_position
 	if is_instance_valid(_progress_label):
-		_progress_label.text = "FIXED CHART  •  120 BPM     %02d:%02d / 00:18" % [int(_level.elapsed) / 60, int(_level.elapsed) % 60]
+		_progress_label.text = "SYNCED AUDIO  •  %d BPM     %02d:%02d / 00:21" % [int(_audio_conductor.bpm), int(_level.elapsed) / 60, int(_level.elapsed) % 60]
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -58,6 +65,8 @@ func _ensure_input_actions() -> void:
 			InputMap.action_add_event("jump", key_event)
 
 func _build_menu() -> void:
+	if is_instance_valid(_audio_conductor):
+		_audio_conductor.stop_song()
 	_clear_screen()
 	screen_state = &"menu"
 	var backdrop := ColorRect.new()
@@ -113,6 +122,7 @@ func _build_menu() -> void:
 func _start_run() -> void:
 	_clear_screen()
 	screen_state = &"playing"
+	_audio_conductor.start_from(0.0)
 	_jump_count = 0
 	_world = Node2D.new()
 	_world.set_script(load("res://scripts/game_world.gd"))
@@ -163,7 +173,7 @@ func _build_hud() -> void:
 	top.add_child(brand)
 
 	_progress_label = Label.new()
-	_progress_label.text = "FIXED CHART  •  120 BPM     00:00 / 00:18"
+	_progress_label.text = "SYNCED AUDIO  •  %d BPM     00:00 / 00:21" % int(_audio_conductor.bpm)
 	_progress_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_progress_label.add_theme_color_override("font_color", MUTED)
@@ -191,6 +201,7 @@ func _pause_run() -> void:
 	if screen_state != &"playing":
 		return
 	screen_state = &"paused"
+	_audio_conductor.pause_song()
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
 	_show_overlay("PAUSED", "The chart is frozen. Take a breath.", "RESUME", _resume_run)
 
@@ -198,6 +209,7 @@ func _resume_run() -> void:
 	if screen_state != &"paused":
 		return
 	_remove_overlay()
+	_audio_conductor.resume_song()
 	_world.process_mode = Node.PROCESS_MODE_INHERIT
 	screen_state = &"playing"
 
@@ -210,6 +222,7 @@ func _on_player_crashed() -> void:
 	if screen_state != &"playing":
 		return
 	screen_state = &"crashed"
+	_audio_conductor.stop_song()
 	_level.reset_level()
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
 	_show_overlay("CRASHED", "You cleared %02d jumps. Try the pattern again." % _jump_count, "RESTART", _restart_run)
@@ -218,6 +231,7 @@ func _finish_level() -> void:
 	if screen_state != &"playing":
 		return
 	screen_state = &"results"
+	_audio_conductor.stop_song()
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
 	_show_overlay("LEVEL CLEAR", "The first chart is complete.", "PLAY AGAIN", _restart_run)
 
@@ -271,7 +285,7 @@ func _remove_overlay() -> void:
 
 func _clear_screen() -> void:
 	for child in get_children():
-		if child != _level:
+		if child != _level and child != _audio_conductor:
 			child.queue_free()
 	_world = null
 	_player = null
