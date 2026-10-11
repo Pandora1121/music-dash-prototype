@@ -4,6 +4,9 @@ const PlayerScene = preload("res://scenes/player.tscn")
 const ObstacleScene = preload("res://scenes/obstacle.tscn")
 const LevelControllerScript = preload("res://scripts/level_controller.gd")
 const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
+const MusicAnalyzerScript = preload("res://scripts/music_analyzer.gd")
+const ChartGeneratorScript = preload("res://scripts/procedural_chart_generator.gd")
+const ObstacleChartScript = preload("res://scripts/obstacle_chart.gd")
 
 const ACCENT := Color("43f5ff")
 const MUTED := Color("8a9bbc")
@@ -20,6 +23,7 @@ var _progress_label: Label
 var _overlay: PanelContainer
 var _jump_count := 0
 var _audio_conductor: Node
+var _prepared_chart: Dictionary = {}
 
 func _ready() -> void:
 	_ensure_input_actions()
@@ -121,6 +125,9 @@ func _build_menu() -> void:
 	column.add_child(hint)
 
 func _start_run() -> void:
+	_prepare_chart()
+	_audio_conductor.bpm = float(_prepared_chart.bpm)
+	_level.set_chart(_prepared_chart)
 	_clear_screen()
 	screen_state = &"playing"
 	_audio_conductor.start_from(0.0)
@@ -147,6 +154,29 @@ func _start_run() -> void:
 
 	_build_hud()
 	_level.begin_level()
+
+func _prepare_chart() -> void:
+	if not _prepared_chart.is_empty():
+		return
+	var stream: AudioStreamWAV = load("res://assets/audio/music_dash_prototype.wav") as AudioStreamWAV
+	var analysis: Dictionary = MusicAnalyzerScript.new().analyze(stream)
+	_prepared_chart = _chart_for_analysis(analysis, 7341)
+
+func _chart_for_analysis(analysis: Dictionary, seed: int) -> Dictionary:
+	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, &"Normal", seed, SCROLL_SPEED)
+	if generated.status == &"ok" and not generated.events.is_empty():
+		generated.source = &"procedural"
+		return generated
+	return {
+		"status": &"ok",
+		"source": &"authored",
+		"seed": seed,
+		"difficulty": &"Normal",
+		"bpm": ObstacleChartScript.BEATS_PER_MINUTE,
+		"duration_seconds": 21.0,
+		"beat_times": [],
+		"events": ObstacleChartScript.new().events(),
+	}
 
 func _spawn_obstacle(event: Dictionary) -> void:
 	if not is_instance_valid(_world) or screen_state != &"playing":

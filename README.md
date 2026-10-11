@@ -16,6 +16,8 @@ A Windows-first rhythm action prototype made with Godot 4.7.2 and GDScript.
 
 The prototype includes an original, synthesized 120 BPM drum loop (`assets/audio/music_dash_prototype.wav`). The audio playback clock is the source for the level timeline, obstacle scheduling, song progress, and jump timestamps. Beat timing includes a configurable `audio_offset_seconds` value on the `AudioConductor` node; positive values move beat events later and negative values move them earlier. Audio playback position is estimated from Godot's playback position, time since the last mix, and output latency.
 
+Phase 4 analyzes the bundled WAV as uncompressed PCM when a run starts, then prepares a seeded obstacle chart from its estimated tempo and musical energy. Low-confidence or unsupported audio uses the authored 120 BPM chart. The prepared chart is reused after a restart so the prototype stays deterministic.
+
 Art is drawn from built-in shapes, so there are no external art assets or licenses to install. The prototype audio was generated for this project and uses no sampled third-party sounds.
 
 ## Checks
@@ -29,6 +31,9 @@ godot --headless --path . --script res://tests/test_player_rules.gd
 godot --headless --path . --script res://tests/test_obstacle_chart.gd
 godot --headless --path . --script res://tests/test_level_controller.gd
 godot --headless --path . --script res://tests/test_beat_chart.gd
+godot --headless --path . --script res://tests/test_music_analyzer.gd
+godot --headless --path . --script res://tests/test_procedural_chart_generator.gd
+godot --headless --path . --script res://tests/test_phase4_integration.gd
 ```
 
 If `godot` is not on `PATH`, replace it with the full path to `Godot_v4.7.2-stable_win64_console.exe`.

@@ -24,7 +24,10 @@ func _initialize() -> void:
 	conductor.call("consume_beats_until", 8.0)
 	assert(world.get("section_tint") == Color("b96bff"), "every 16th beat should change the environment color")
 	var level: Node = instance.get_node("LevelController")
-	level.advance(1.0)
+	var chart: Dictionary = instance.get("_prepared_chart")
+	var first_event: Dictionary = chart.events[0]
+	var first_hit_time := float(chart.beat_times[first_event.beat_index])
+	level.advance(first_hit_time - 1120.0 / 360.0 + 0.01, conductor.get("audio_offset_seconds"), conductor.get("bpm"))
 	assert(instance.get_node("GameWorld").get_child_count() >= 3, "chart should spawn the first obstacle")
 	instance.get_node("GameWorld/Player").crash()
 	assert(instance.get("screen_state") == &"playing", "crash flow should defer scene changes")
@@ -43,6 +46,7 @@ func _initialize() -> void:
 	instance.call("_resume_run")
 	assert(conductor.call("is_song_playing"), "resume should continue audio playback")
 	conductor.call("stop_song")
+	await create_timer(0.5).timeout
 	await process_frame
 	instance.free()
 	await process_frame
