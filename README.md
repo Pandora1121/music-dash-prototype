@@ -20,6 +20,10 @@ Phase 4 analyzes the bundled WAV as uncompressed PCM when a run starts, then pre
 
 Phase 5 scores jumps against chart obstacle beats with Perfect, Great, Good, and Miss timing judgments. The HUD shows score, combo, accuracy, judgment feedback, BPM, and song progress; run results include judgment counts and best combo. Easy is unlocked for a new profile, and completing a chart unlocks the next difficulty. Best scores and unlocks are saved locally as `user://music_dash_profile.json`.
 
+## Custom Music (Phase 6A)
+
+From the menu, choose **LOAD CUSTOM WAV** and select a local `.wav` file. The prototype accepts uncompressed 16-bit PCM WAV audio with a valid sample rate, at least two seconds of non-silent audio, and a confident tempo estimate. Files that cannot be analyzed or do not produce a playable chart are rejected; the current selection stays active and the menu shows an error. **USE BUILT-IN** restores the bundled track. The selected audio path is used for the current session only: the file is not copied into the project and its path is not saved. OGG/MP3 import and the Phase 6B Level Editor are not included in this increment.
+
 Art is drawn from built-in shapes, so there are no external art assets or licenses to install. The prototype audio was generated for this project and uses no sampled third-party sounds.
 
 ## Checks
