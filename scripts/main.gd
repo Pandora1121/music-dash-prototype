@@ -4,7 +4,7 @@ const PlayerScene = preload("res://scenes/player.tscn")
 const ObstacleScene = preload("res://scenes/obstacle.tscn")
 const LevelControllerScript = preload("res://scripts/level_controller.gd")
 const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
-const MusicAnalyzerScript = preload("res://scripts/music_analyzer.gd")
+const CustomMusicLoaderScript = preload("res://scripts/custom_music_loader.gd")
 const ChartGeneratorScript = preload("res://scripts/procedural_chart_generator.gd")
 const ObstacleChartScript = preload("res://scripts/obstacle_chart.gd")
 const RunScorerScript = preload("res://scripts/run_scorer.gd")
@@ -31,10 +31,18 @@ var _overlay: PanelContainer
 var _overlay_body_label: Label
 var difficulty_selector: OptionButton
 var _difficulty_info_label: Label
+var builtin_track_button: Button
+var custom_wav_button: Button
+var song_details_label: Label
+var song_error_label: Label
 var _jump_count := 0
 var _audio_conductor: Node
 var _prepared_chart: Dictionary = {}
 var _music_analysis: Dictionary = {}
+var _builtin_track: Dictionary = {}
+var _selected_track: Dictionary = {}
+var _custom_music_loader: RefCounted
+var _custom_file_dialog: FileDialog
 var _scorer: RefCounted
 var _progression_store: RefCounted
 var _run_finalized := false
@@ -50,11 +58,13 @@ func _ready() -> void:
 	_audio_conductor.name = "AudioConductor"
 	add_child(_audio_conductor)
 	_audio_conductor.beat_reached.connect(_on_beat_reached)
+	_custom_music_loader = CustomMusicLoaderScript.new()
 	_level = LevelControllerScript.new()
 	_level.name = "LevelController"
 	add_child(_level)
 	_level.obstacle_due.connect(_spawn_obstacle)
 	_level.completed.connect(_finish_level)
+	_select_builtin_track()
 	_build_menu()
 
 func _process(_delta: float) -> void:
@@ -107,9 +117,9 @@ func _build_menu() -> void:
 
 	var column := VBoxContainer.new()
 	column.set_anchors_preset(Control.PRESET_CENTER)
-	column.position = Vector2(-300, -240)
-	column.size = Vector2(600, 480)
-	column.add_theme_constant_override("separation", 18)
+	column.position = Vector2(-300, -310)
+	column.size = Vector2(600, 620)
+	column.add_theme_constant_override("separation", 12)
 	add_child(column)
 
 	var eyebrow := Label.new()
@@ -132,6 +142,47 @@ func _build_menu() -> void:
 	description.add_theme_color_override("font_color", MUTED)
 	description.add_theme_font_size_override("font_size", 18)
 	column.add_child(description)
+
+	song_details_label = Label.new()
+	song_details_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	song_details_label.add_theme_color_override("font_color", Color.WHITE)
+	song_details_label.add_theme_font_size_override("font_size", 15)
+	column.add_child(song_details_label)
+	_update_song_details()
+
+	var song_controls := HBoxContainer.new()
+	song_controls.alignment = BoxContainer.ALIGNMENT_CENTER
+	song_controls.add_theme_constant_override("separation", 12)
+	column.add_child(song_controls)
+
+	builtin_track_button = Button.new()
+	builtin_track_button.text = "USE BUILT-IN"
+	builtin_track_button.custom_minimum_size = Vector2(190, 42)
+	builtin_track_button.pressed.connect(_select_builtin_track)
+	song_controls.add_child(builtin_track_button)
+
+	custom_wav_button = Button.new()
+	custom_wav_button.text = "LOAD CUSTOM WAV"
+	custom_wav_button.custom_minimum_size = Vector2(190, 42)
+	custom_wav_button.pressed.connect(_open_custom_file_dialog)
+	song_controls.add_child(custom_wav_button)
+
+	song_error_label = Label.new()
+	song_error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	song_error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	song_error_label.add_theme_color_override("font_color", Color("ff789f"))
+	song_error_label.add_theme_font_size_override("font_size", 13)
+	column.add_child(song_error_label)
+
+	_custom_file_dialog = FileDialog.new()
+	_custom_file_dialog.title = "Choose a custom WAV track"
+	_custom_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_custom_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_custom_file_dialog.use_native_dialog = true
+	_custom_file_dialog.filters = PackedStringArray(["*.wav ; WAV audio (*.wav)"])
+	_custom_file_dialog.file_selected.connect(_on_custom_file_selected)
+	_custom_file_dialog.canceled.connect(_on_custom_file_canceled)
+	add_child(_custom_file_dialog)
 
 	_difficulty_info_label = Label.new()
 	_difficulty_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -172,7 +223,12 @@ func _start_run() -> void:
 	if not _progression_store.is_unlocked(selected_difficulty):
 		_build_menu()
 		return
-	_prepare_chart()
+	if not _prepare_chart():
+		return
+	var selected_stream: AudioStream = _selected_track.get("stream")
+	if not _audio_conductor.set_stream(selected_stream):
+		_set_song_error("The selected audio stream could not be started.")
+		return
 	_audio_conductor.bpm = float(_prepared_chart.bpm)
 	_level.set_chart(_prepared_chart)
 	_scorer = RunScorerScript.new()
@@ -205,13 +261,99 @@ func _start_run() -> void:
 	_build_hud()
 	_level.begin_level()
 
-func _prepare_chart() -> void:
+func _prepare_chart() -> bool:
+	if _selected_track.is_empty():
+		_set_song_error("Select a song before starting a chart.")
+		return false
 	if not _prepared_chart.is_empty() and _prepared_chart.get("difficulty", &"") == selected_difficulty:
+		return _prepared_chart.get("status") == &"ok" and not _prepared_chart.get("events", []).is_empty()
+	_music_analysis = _selected_track.get("analysis", {})
+	if _music_analysis.get("status", &"failed") != &"ok":
+		_set_song_error(String(_music_analysis.get("reason", "The selected song could not be analyzed.")))
+		return false
+	if _selected_track.get("source", &"builtin") == &"custom":
+		var generated: Dictionary = ChartGeneratorScript.new().generate(_music_analysis, selected_difficulty, 7341, SCROLL_SPEED)
+		if generated.get("status") != &"ok" or not (generated.get("events", []) is Array) or generated.events.is_empty():
+			_set_song_error("No fair obstacles could be generated for this song and difficulty. Choose another WAV or difficulty.")
+			return false
+		_prepared_chart = generated
+	else:
+		_prepared_chart = _chart_for_analysis(_music_analysis, 7341, selected_difficulty)
+	if _prepared_chart.get("status") != &"ok" or _prepared_chart.get("events", []).is_empty():
+		_set_song_error("A playable chart could not be prepared for this song.")
+		return false
+	_set_song_error("")
+	return true
+
+func _select_builtin_track() -> void:
+	if _builtin_track.is_empty():
+		var builtin_path := ProjectSettings.globalize_path("res://assets/audio/music_dash_prototype.wav")
+		_builtin_track = _custom_music_loader.load_file(builtin_path)
+		if _builtin_track.get("status") != &"ok":
+			_set_song_error(String(_builtin_track.get("reason", "The built-in track could not be loaded.")))
+			return
+	var track := _builtin_track.duplicate(false)
+	track["source"] = &"builtin"
+	var chart := _chart_for_analysis(track.analysis, 7341, selected_difficulty)
+	if not _try_commit_track(track, chart):
+		_set_song_error("The built-in chart could not be prepared.")
+
+func _select_custom_track(path: String) -> bool:
+	if screen_state != &"menu":
+		_set_song_error("Custom tracks can only be changed from the menu.")
+		return false
+	var track: Dictionary = _custom_music_loader.load_file(path)
+	if track.get("status") != &"ok":
+		_set_song_error(String(track.get("reason", "The selected WAV could not be loaded.")))
+		return false
+	var chart: Dictionary = ChartGeneratorScript.new().generate(track.analysis, selected_difficulty, 7341, SCROLL_SPEED)
+	if chart.get("status") != &"ok" or not (chart.get("events", []) is Array) or chart.events.is_empty():
+		_set_song_error("No fair obstacles could be generated for this song and difficulty. Choose another WAV or difficulty.")
+		return false
+	track["source"] = &"custom"
+	if not _try_commit_track(track, chart):
+		_set_song_error("The selected WAV did not produce a playable chart.")
+		return false
+	return true
+
+func _try_commit_track(track: Dictionary, chart: Dictionary) -> bool:
+	var events_value: Variant = chart.get("events", null)
+	var analysis_value: Variant = track.get("analysis", null)
+	if track.get("status") != &"ok" or not (track.get("stream") is AudioStreamWAV):
+		return false
+	if not (analysis_value is Dictionary) or analysis_value.get("status", &"failed") != &"ok":
+		return false
+	if chart.get("status") != &"ok" or not (events_value is Array) or events_value.is_empty():
+		return false
+	if chart.get("difficulty") != selected_difficulty:
+		return false
+	_selected_track = track.duplicate(false)
+	_music_analysis = analysis_value
+	_prepared_chart = chart.duplicate(true)
+	_update_song_details()
+	_set_song_error("")
+	return true
+
+func _open_custom_file_dialog() -> void:
+	if is_instance_valid(_custom_file_dialog):
+		_custom_file_dialog.popup_centered_ratio(0.8)
+
+func _on_custom_file_selected(path: String) -> void:
+	_select_custom_track(path)
+
+func _on_custom_file_canceled() -> void:
+	pass
+
+func _update_song_details() -> void:
+	if not is_instance_valid(song_details_label) or _selected_track.is_empty():
 		return
-	if _music_analysis.is_empty():
-		var stream: AudioStreamWAV = load("res://assets/audio/music_dash_prototype.wav") as AudioStreamWAV
-		_music_analysis = MusicAnalyzerScript.new().analyze(stream)
-	_prepared_chart = _chart_for_analysis(_music_analysis, 7341, selected_difficulty)
+	var analysis: Dictionary = _selected_track.get("analysis", {})
+	var duration := float(analysis.get("duration_seconds", 0.0))
+	song_details_label.text = "TRACK  %s    •    %d BPM    •    %02d:%02d" % [String(_selected_track.get("display_name", "Unknown track")), int(analysis.get("bpm", 0.0)), int(duration) / 60, int(duration) % 60]
+
+func _set_song_error(message: String) -> void:
+	if is_instance_valid(song_error_label):
+		song_error_label.text = message
 
 func _chart_for_analysis(analysis: Dictionary, seed: int, difficulty: StringName = &"Easy") -> Dictionary:
 	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, difficulty, seed, SCROLL_SPEED)
@@ -357,6 +499,7 @@ func _on_difficulty_selected(index: int) -> void:
 	if index < 0 or index >= difficulties.size() or not _progression_store.is_unlocked(difficulties[index]):
 		return
 	selected_difficulty = difficulties[index]
+	_prepared_chart.clear()
 	_update_difficulty_info()
 
 func _update_difficulty_info() -> void:
@@ -499,6 +642,11 @@ func _clear_screen() -> void:
 	progress_bar = null
 	difficulty_selector = null
 	_difficulty_info_label = null
+	builtin_track_button = null
+	custom_wav_button = null
+	song_details_label = null
+	song_error_label = null
+	_custom_file_dialog = null
 	_overlay_body_label = null
 
 func _button_style(color: Color) -> StyleBoxFlat:
