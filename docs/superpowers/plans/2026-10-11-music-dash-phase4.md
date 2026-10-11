@@ -86,4 +86,4 @@
 - [x] Run every test under `tests/` with the project's Godot 4.7 headless executable, plus a project script parse check.
 - [x] Inspect output and exit codes for script errors, assertion failures, import errors, and runtime errors; all eight tests exit 0 with PASS and no warning/error output.
 - [x] Review `git diff --check` and the final diff for only Phase 4 scope.
-- [ ] Commit and push the verified Phase 4 changes if Git metadata permissions allow.
+- [x] Commit and push the verified Phase 4 changes.
