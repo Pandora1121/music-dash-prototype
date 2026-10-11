@@ -31,6 +31,20 @@ func song_position() -> float:
 	estimated_position -= AudioServer.get_output_latency()
 	return maxf(0.0, estimated_position)
 
+func set_stream(stream: AudioStream) -> bool:
+	if stream == null or _player == null:
+		return false
+	_player.stop()
+	_player.stream_paused = false
+	_player.stream = stream
+	_paused_position = 0.0
+	_song_paused = false
+	_beat_chart.reset()
+	return true
+
+func current_stream() -> AudioStream:
+	return _player.stream if _player != null else null
+
 func consume_beats_until(position: float) -> Array[int]:
 	var beats: Array[int] = _beat_chart.drain_beats_until(position, bpm, audio_offset_seconds)
 	for beat_index in beats:
@@ -69,7 +83,6 @@ func stop_song() -> void:
 	_song_paused = false
 	_player.stop()
 	_player.stream_paused = false
-	_player.stream = null
 	_beat_chart.reset()
 
 func is_song_playing() -> bool:
