@@ -9,6 +9,7 @@ func _initialize() -> void:
 	_test_each_target_scores_once()
 	_test_combo_multiplier_and_cap()
 	_test_accuracy_and_empty_chart()
+	_test_summary_does_not_finalize_targets()
 	_test_invalid_target_times_are_rejected()
 	print("PASS: run scorer")
 	quit()
@@ -17,8 +18,12 @@ func _test_judgment_windows_are_symmetric() -> void:
 	for timing_case in [
 		{"error": 0.045, "judgment": &"Perfect"},
 		{"error": -0.045, "judgment": &"Perfect"},
+		{"error": 0.04501, "judgment": &"Great"},
+		{"error": -0.04501, "judgment": &"Great"},
 		{"error": 0.090, "judgment": &"Great"},
 		{"error": -0.090, "judgment": &"Great"},
+		{"error": 0.09001, "judgment": &"Good"},
+		{"error": -0.09001, "judgment": &"Good"},
 		{"error": 0.150, "judgment": &"Good"},
 		{"error": -0.150, "judgment": &"Good"},
 	]:
@@ -33,14 +38,14 @@ func _test_outside_window_does_not_consume_target() -> void:
 	assert(scorer.record_jump(1.849999).is_empty(), "an early jump outside Good should not judge the future target")
 	var judgment: Dictionary = scorer.record_jump(1.85)
 	assert(judgment.get("judgment", &"") == &"Good", "target should remain available for a valid early Good")
-	assert(scorer.record_jump(4.15001).is_empty(), "a late jump outside Good should not score")
-	assert(scorer.advance_to(4.15001).is_empty(), "recording the late jump should resolve the target once as Miss")
+	assert(scorer.record_jump(4.150001).is_empty(), "a late jump outside Good should not score")
+	assert(scorer.advance_to(4.150001).is_empty(), "recording the late jump should resolve the target once as Miss")
 	assert(scorer.finalize().miss == 1, "late window should count one Miss")
 
 func _test_missed_target_cannot_be_recovered() -> void:
 	var scorer: RefCounted = RunScorerScript.new()
 	assert(scorer.configure([1.0]), "valid target should configure")
-	var resolved: Array[Dictionary] = scorer.advance_to(1.15001)
+	var resolved: Array[Dictionary] = scorer.advance_to(1.150001)
 	assert(resolved.size() == 1 and resolved[0].judgment == &"Miss", "expired target should become Miss")
 	assert(scorer.record_jump(1.15).is_empty(), "a resolved Miss must not become a later hit")
 	assert(scorer.advance_to(2.0).is_empty(), "a target must not emit Miss twice")
@@ -90,3 +95,13 @@ func _test_invalid_target_times_are_rejected() -> void:
 	assert(not scorer.configure([1.0, 1.0]), "duplicate target times should be rejected")
 	assert(not scorer.configure([NAN]), "non-finite target times should be rejected")
 	assert(not scorer.configure([-0.1]), "negative target times should be rejected")
+	assert(not scorer.configure([1.0, INF]), "mixed valid and non-finite targets should be rejected")
+	assert(scorer.finalize().miss == 0, "invalid chart should not retain a partial target list")
+
+func _test_summary_does_not_finalize_targets() -> void:
+	var scorer: RefCounted = RunScorerScript.new()
+	scorer.configure([1.0, 2.0])
+	scorer.record_jump(1.0)
+	var current: Dictionary = scorer.get_summary()
+	assert(current.score == 1000 and current.miss == 0, "live summary should not finalize remaining chart targets")
+	assert(scorer.finalize().miss == 1, "terminal summary should finalize remaining targets")

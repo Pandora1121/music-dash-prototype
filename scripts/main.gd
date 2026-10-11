@@ -7,6 +7,8 @@ const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
 const MusicAnalyzerScript = preload("res://scripts/music_analyzer.gd")
 const ChartGeneratorScript = preload("res://scripts/procedural_chart_generator.gd")
 const ObstacleChartScript = preload("res://scripts/obstacle_chart.gd")
+const RunScorerScript = preload("res://scripts/run_scorer.gd")
+const ProgressionStoreScript = preload("res://scripts/progression_store.gd")
 
 const ACCENT := Color("43f5ff")
 const MUTED := Color("8a9bbc")
@@ -20,13 +22,30 @@ var _player: CharacterBody2D
 var _hud_layer: CanvasLayer
 var _status_label: Label
 var _progress_label: Label
+var score_label: Label
+var combo_label: Label
+var accuracy_label: Label
+var judgment_label: Label
+var progress_bar: ProgressBar
 var _overlay: PanelContainer
+var _overlay_body_label: Label
+var difficulty_selector: OptionButton
+var _difficulty_info_label: Label
 var _jump_count := 0
 var _audio_conductor: Node
 var _prepared_chart: Dictionary = {}
+var _music_analysis: Dictionary = {}
+var _scorer: RefCounted
+var _progression_store: RefCounted
+var _run_finalized := false
+var selected_difficulty: StringName = &"Easy"
+@export var progression_profile_path := "user://music_dash_profile.json"
 
 func _ready() -> void:
 	_ensure_input_actions()
+	_progression_store = ProgressionStoreScript.new()
+	_progression_store.load_profile(progression_profile_path)
+	selected_difficulty = _progression_store.unlocked_difficulty()
 	_audio_conductor = AudioConductorScript.new()
 	_audio_conductor.name = "AudioConductor"
 	add_child(_audio_conductor)
@@ -43,11 +62,18 @@ func _process(_delta: float) -> void:
 		return
 	var song_position: float = _audio_conductor.song_position()
 	_audio_conductor.consume_beats_until(song_position)
+	for judgment in _scorer.advance_to(song_position):
+		_apply_judgment(judgment)
 	_level.advance(song_position, _audio_conductor.audio_offset_seconds, _audio_conductor.bpm)
 	if is_instance_valid(_player):
 		_player.timing_position = song_position
 	if is_instance_valid(_progress_label):
-		_progress_label.text = "SYNCED AUDIO  •  %d BPM     %02d:%02d / 00:21" % [int(_audio_conductor.bpm), int(_level.elapsed) / 60, int(_level.elapsed) % 60]
+		var duration := float(_prepared_chart.get("duration_seconds", 21.0))
+		_progress_label.text = "SYNCED AUDIO  •  %d BPM     %02d:%02d / %02d:%02d" % [int(_audio_conductor.bpm), int(_level.elapsed) / 60, int(_level.elapsed) % 60, int(duration) / 60, int(duration) % 60]
+	if is_instance_valid(progress_bar):
+		progress_bar.max_value = maxf(0.1, float(_prepared_chart.get("duration_seconds", 21.0)))
+		progress_bar.value = clampf(song_position, 0.0, progress_bar.max_value)
+	_update_hud_stats()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -81,8 +107,8 @@ func _build_menu() -> void:
 
 	var column := VBoxContainer.new()
 	column.set_anchors_preset(Control.PRESET_CENTER)
-	column.position = Vector2(-300, -180)
-	column.size = Vector2(600, 360)
+	column.position = Vector2(-300, -240)
+	column.size = Vector2(600, 480)
 	column.add_theme_constant_override("separation", 18)
 	add_child(column)
 
@@ -107,6 +133,24 @@ func _build_menu() -> void:
 	description.add_theme_font_size_override("font_size", 18)
 	column.add_child(description)
 
+	_difficulty_info_label = Label.new()
+	_difficulty_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_difficulty_info_label.add_theme_color_override("font_color", MUTED)
+	_difficulty_info_label.add_theme_font_size_override("font_size", 14)
+	column.add_child(_difficulty_info_label)
+
+	difficulty_selector = OptionButton.new()
+	difficulty_selector.custom_minimum_size = Vector2(260, 42)
+	difficulty_selector.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var difficulties: Array[StringName] = ProgressionStoreScript.DIFFICULTIES
+	for index in range(difficulties.size()):
+		difficulty_selector.add_item(String(difficulties[index]))
+		difficulty_selector.set_item_disabled(index, not _progression_store.is_unlocked(difficulties[index]))
+	difficulty_selector.select(difficulties.find(selected_difficulty))
+	difficulty_selector.item_selected.connect(_on_difficulty_selected)
+	column.add_child(difficulty_selector)
+	_update_difficulty_info()
+
 	start_button = Button.new()
 	start_button.text = "START PROTOTYPE"
 	start_button.custom_minimum_size = Vector2(240, 58)
@@ -125,13 +169,19 @@ func _build_menu() -> void:
 	column.add_child(hint)
 
 func _start_run() -> void:
+	if not _progression_store.is_unlocked(selected_difficulty):
+		_build_menu()
+		return
 	_prepare_chart()
 	_audio_conductor.bpm = float(_prepared_chart.bpm)
 	_level.set_chart(_prepared_chart)
+	_scorer = RunScorerScript.new()
+	_scorer.configure(_target_times_for_chart(_prepared_chart))
 	_clear_screen()
 	screen_state = &"playing"
 	_audio_conductor.start_from(0.0)
 	_jump_count = 0
+	_run_finalized = false
 	_world = Node2D.new()
 	_world.set_script(load("res://scripts/game_world.gd"))
 	_world.name = "GameWorld"
@@ -156,14 +206,15 @@ func _start_run() -> void:
 	_level.begin_level()
 
 func _prepare_chart() -> void:
-	if not _prepared_chart.is_empty():
+	if not _prepared_chart.is_empty() and _prepared_chart.get("difficulty", &"") == selected_difficulty:
 		return
-	var stream: AudioStreamWAV = load("res://assets/audio/music_dash_prototype.wav") as AudioStreamWAV
-	var analysis: Dictionary = MusicAnalyzerScript.new().analyze(stream)
-	_prepared_chart = _chart_for_analysis(analysis, 7341)
+	if _music_analysis.is_empty():
+		var stream: AudioStreamWAV = load("res://assets/audio/music_dash_prototype.wav") as AudioStreamWAV
+		_music_analysis = MusicAnalyzerScript.new().analyze(stream)
+	_prepared_chart = _chart_for_analysis(_music_analysis, 7341, selected_difficulty)
 
-func _chart_for_analysis(analysis: Dictionary, seed: int) -> Dictionary:
-	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, &"Normal", seed, SCROLL_SPEED)
+func _chart_for_analysis(analysis: Dictionary, seed: int, difficulty: StringName = &"Easy") -> Dictionary:
+	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, difficulty, seed, SCROLL_SPEED)
 	if generated.status == &"ok" and not generated.events.is_empty():
 		generated.source = &"procedural"
 		return generated
@@ -171,12 +222,34 @@ func _chart_for_analysis(analysis: Dictionary, seed: int) -> Dictionary:
 		"status": &"ok",
 		"source": &"authored",
 		"seed": seed,
-		"difficulty": &"Normal",
+		"difficulty": difficulty,
 		"bpm": ObstacleChartScript.BEATS_PER_MINUTE,
 		"duration_seconds": 21.0,
 		"beat_times": [],
 		"events": ObstacleChartScript.new().events(),
 	}
+
+func _target_times_for_chart(chart: Dictionary) -> Array[float]:
+	var target_times: Array[float] = []
+	var raw_events: Variant = chart.get("events", [])
+	if not (raw_events is Array):
+		return target_times
+	var raw_beat_times: Variant = chart.get("beat_times", [])
+	var beat_times: Array = raw_beat_times if raw_beat_times is Array else []
+	var bpm := float(chart.get("bpm", 0.0))
+	if not is_finite(bpm) or bpm <= 0.0:
+		return target_times
+	for event in raw_events:
+		if not (event is Dictionary):
+			continue
+		var beat_index := int(event.get("beat_index", -1))
+		if beat_index < 0:
+			continue
+		var target_time := float(beat_times[beat_index]) if beat_index < beat_times.size() else float(beat_index) * 60.0 / bpm
+		target_time += _audio_conductor.audio_offset_seconds
+		if is_finite(target_time) and target_time >= 0.0:
+			target_times.append(target_time)
+	return target_times
 
 func _spawn_obstacle(event: Dictionary) -> void:
 	if not is_instance_valid(_world) or screen_state != &"playing":
@@ -216,8 +289,42 @@ func _build_hud() -> void:
 	pause_button.pressed.connect(_pause_run)
 	top.add_child(pause_button)
 
+	progress_bar = ProgressBar.new()
+	progress_bar.position = Vector2(28, 72)
+	progress_bar.size = Vector2(1224, 8)
+	progress_bar.show_percentage = false
+	progress_bar.max_value = maxf(0.1, float(_prepared_chart.get("duration_seconds", 21.0)))
+	_hud_layer.add_child(progress_bar)
+
+	score_label = Label.new()
+	score_label.position = Vector2(28, 94)
+	score_label.add_theme_color_override("font_color", Color.WHITE)
+	score_label.add_theme_font_size_override("font_size", 20)
+	_hud_layer.add_child(score_label)
+
+	combo_label = Label.new()
+	combo_label.position = Vector2(350, 96)
+	combo_label.add_theme_color_override("font_color", ACCENT)
+	combo_label.add_theme_font_size_override("font_size", 18)
+	_hud_layer.add_child(combo_label)
+
+	accuracy_label = Label.new()
+	accuracy_label.position = Vector2(760, 96)
+	accuracy_label.add_theme_color_override("font_color", MUTED)
+	accuracy_label.add_theme_font_size_override("font_size", 18)
+	_hud_layer.add_child(accuracy_label)
+
+	judgment_label = Label.new()
+	judgment_label.position = Vector2(28, 164)
+	judgment_label.size = Vector2(1224, 54)
+	judgment_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	judgment_label.add_theme_color_override("font_color", ACCENT)
+	judgment_label.add_theme_font_size_override("font_size", 38)
+	judgment_label.text = "HIT THE BEAT"
+	_hud_layer.add_child(judgment_label)
+
 	_status_label = Label.new()
-	_status_label.position = Vector2(28, 92)
+	_status_label.position = Vector2(28, 138)
 	_status_label.add_theme_color_override("font_color", Color.WHITE)
 	_status_label.add_theme_font_size_override("font_size", 18)
 	_hud_layer.add_child(_status_label)
@@ -227,6 +334,7 @@ func _build_hud() -> void:
 	instruction.position = Vector2(28, 650)
 	instruction.add_theme_color_override("font_color", MUTED)
 	_hud_layer.add_child(instruction)
+	_update_hud_stats()
 
 func _pause_run() -> void:
 	if screen_state != &"playing":
@@ -244,10 +352,44 @@ func _resume_run() -> void:
 	_world.process_mode = Node.PROCESS_MODE_INHERIT
 	screen_state = &"playing"
 
-func _on_player_jumped(_position_seconds: float) -> void:
+func _on_difficulty_selected(index: int) -> void:
+	var difficulties: Array[StringName] = ProgressionStoreScript.DIFFICULTIES
+	if index < 0 or index >= difficulties.size() or not _progression_store.is_unlocked(difficulties[index]):
+		return
+	selected_difficulty = difficulties[index]
+	_update_difficulty_info()
+
+func _update_difficulty_info() -> void:
+	if not is_instance_valid(_difficulty_info_label):
+		return
+	_difficulty_info_label.text = "BEST %06d  •  UNLOCKED THROUGH %s" % [int(_progression_store.best_score(selected_difficulty)), String(_progression_store.unlocked_difficulty()).to_upper()]
+
+func _on_player_jumped(position_seconds: float) -> void:
 	_jump_count += 1
+	for missed_judgment in _scorer.advance_to(position_seconds):
+		_apply_judgment(missed_judgment)
+	var judgment: Dictionary = _scorer.record_jump(position_seconds)
+	if not judgment.is_empty():
+		_apply_judgment(judgment)
 	if is_instance_valid(_status_label):
 		_status_label.text = "JUMP  %02d" % _jump_count
+
+func _apply_judgment(judgment: Dictionary) -> void:
+	if is_instance_valid(judgment_label):
+		judgment_label.text = String(judgment.judgment).to_upper()
+		judgment_label.add_theme_color_override("font_color", ACCENT if judgment.judgment != &"Miss" else Color("ff5c9a"))
+	_update_hud_stats()
+
+func _update_hud_stats() -> void:
+	if _scorer == null:
+		return
+	var stats: Dictionary = _scorer.get_summary()
+	if is_instance_valid(score_label):
+		score_label.text = "SCORE %06d" % int(stats.score)
+	if is_instance_valid(combo_label):
+		combo_label.text = "COMBO %02d  •  BEST %02d" % [int(stats.combo), int(stats.best_combo)]
+	if is_instance_valid(accuracy_label):
+		accuracy_label.text = "ACCURACY %05.1f%%" % (float(stats.accuracy) * 100.0)
 
 func _on_beat_reached(beat_index: int, _song_position: float) -> void:
 	if screen_state != &"playing":
@@ -265,7 +407,7 @@ func _on_player_crashed() -> void:
 	_audio_conductor.stop_song()
 	_level.reset_level()
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
-	_show_overlay("CRASHED", "You cleared %02d jumps. Try the pattern again." % _jump_count, "RESTART", _restart_run)
+	_show_run_result(false)
 
 func _finish_level() -> void:
 	if screen_state != &"playing":
@@ -273,7 +415,20 @@ func _finish_level() -> void:
 	screen_state = &"results"
 	_audio_conductor.stop_song()
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
-	_show_overlay("LEVEL CLEAR", "The first chart is complete.", "PLAY AGAIN", _restart_run)
+	_show_run_result(true)
+
+func _show_run_result(completed: bool) -> void:
+	if _run_finalized:
+		return
+	_run_finalized = true
+	var stats: Dictionary = _scorer.finalize()
+	_progression_store.record_run(selected_difficulty, int(stats.score), completed, progression_profile_path)
+	var title := "LEVEL CLEAR" if completed else "CRASHED"
+	var action := "PLAY AGAIN" if completed else "RESTART"
+	var next_line := "UNLOCKED THROUGH %s" % String(_progression_store.unlocked_difficulty()).to_upper() if completed else "TRY THE CHART AGAIN"
+	var best_score: int = _progression_store.best_score(selected_difficulty)
+	var body := "SCORE %06d  •  BEST %06d\nACCURACY %05.1f%%  •  BEST COMBO %d\nPERFECT %d  GREAT %d  GOOD %d  MISS %d\nDIFFICULTY %s  •  %s" % [int(stats.score), best_score, float(stats.accuracy) * 100.0, int(stats.best_combo), int(stats.perfect), int(stats.great), int(stats.good), int(stats.miss), String(selected_difficulty).to_upper(), next_line]
+	_show_overlay(title, body, action, _restart_run)
 
 func _restart_run() -> void:
 	_level.reset_level()
@@ -284,8 +439,8 @@ func _show_overlay(title_text: String, body_text: String, action_text: String, a
 	_remove_overlay()
 	_overlay = PanelContainer.new()
 	_overlay.set_anchors_preset(Control.PRESET_CENTER)
-	_overlay.position = Vector2(-210, -150)
-	_overlay.size = Vector2(420, 300)
+	_overlay.position = Vector2(-250, -195)
+	_overlay.size = Vector2(500, 390)
 	_overlay.add_theme_stylebox_override("panel", _panel_style())
 	_hud_layer.add_child(_overlay)
 	var content := VBoxContainer.new()
@@ -301,8 +456,11 @@ func _show_overlay(title_text: String, body_text: String, action_text: String, a
 	var body := Label.new()
 	body.text = body_text
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(440, 124)
 	body.add_theme_color_override("font_color", MUTED)
 	content.add_child(body)
+	_overlay_body_label = body
 	var action_button := Button.new()
 	action_button.text = action_text
 	action_button.custom_minimum_size = Vector2(200, 52)
@@ -322,6 +480,7 @@ func _remove_overlay() -> void:
 	if is_instance_valid(_overlay):
 		_overlay.queue_free()
 	_overlay = null
+	_overlay_body_label = null
 
 func _clear_screen() -> void:
 	for child in get_children():
@@ -333,6 +492,14 @@ func _clear_screen() -> void:
 	_overlay = null
 	_status_label = null
 	_progress_label = null
+	score_label = null
+	combo_label = null
+	accuracy_label = null
+	judgment_label = null
+	progress_bar = null
+	difficulty_selector = null
+	_difficulty_info_label = null
+	_overlay_body_label = null
 
 func _button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

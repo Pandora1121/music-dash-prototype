@@ -2,6 +2,7 @@ extends RefCounted
 class_name ProgressionStore
 
 const PROFILE_VERSION := 1
+const MAX_STORED_SCORE := 2147483647
 const DIFFICULTIES: Array[StringName] = [&"Easy", &"Normal", &"Hard", &"Expert", &"Insane"]
 
 var _unlocked_index := 0
@@ -90,7 +91,7 @@ func _is_valid_profile(profile: Dictionary) -> bool:
 		if not (difficulties.get(key) is Dictionary):
 			return false
 		var entry: Dictionary = difficulties[key]
-		if not _is_integer_number(entry.get("best_score")) or int(entry.best_score) < 0:
+		if not _is_integer_number(entry.get("best_score")) or int(entry.best_score) < 0 or float(entry.best_score) > MAX_STORED_SCORE:
 			return false
 		if typeof(entry.get("completed")) != TYPE_BOOL:
 			return false

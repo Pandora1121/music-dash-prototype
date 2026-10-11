@@ -18,6 +18,8 @@ The prototype includes an original, synthesized 120 BPM drum loop (`assets/audio
 
 Phase 4 analyzes the bundled WAV as uncompressed PCM when a run starts, then prepares a seeded obstacle chart from its estimated tempo and musical energy. Low-confidence or unsupported audio uses the authored 120 BPM chart. The prepared chart is reused after a restart so the prototype stays deterministic.
 
+Phase 5 scores jumps against chart obstacle beats with Perfect, Great, Good, and Miss timing judgments. The HUD shows score, combo, accuracy, judgment feedback, BPM, and song progress; run results include judgment counts and best combo. Easy is unlocked for a new profile, and completing a chart unlocks the next difficulty. Best scores and unlocks are saved locally as `user://music_dash_profile.json`.
+
 Art is drawn from built-in shapes, so there are no external art assets or licenses to install. The prototype audio was generated for this project and uses no sampled third-party sounds.
 
 ## Checks
@@ -34,6 +36,9 @@ godot --headless --path . --script res://tests/test_beat_chart.gd
 godot --headless --path . --script res://tests/test_music_analyzer.gd
 godot --headless --path . --script res://tests/test_procedural_chart_generator.gd
 godot --headless --path . --script res://tests/test_phase4_integration.gd
+godot --headless --path . --script res://tests/test_run_scorer.gd
+godot --headless --path . --script res://tests/test_progression_store.gd
+godot --headless --path . --script res://tests/test_phase5_integration.gd
 ```
 
 If `godot` is not on `PATH`, replace it with the full path to `Godot_v4.7.2-stable_win64_console.exe`.

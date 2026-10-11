@@ -95,30 +95,30 @@
 - Consume `ProgressionStore.load_profile`, `unlocked_difficulty`, `is_unlocked`, `best_score`, and `record_run` from Task 2.
 - Add a helper in `main.gd` that maps each chart event `beat_index` to its target timestamp: use `chart.beat_times[index] + audio_offset` when available; otherwise use `index * 60.0 / chart.bpm + audio_offset`, matching `BeatChart.beat_time`.
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests**
   Assert new profile starts on Easy, menu difficulty control disables locked options, selected difficulty is passed into generated chart data, scorer targets match obstacle event times including authored fallback, HUD reflects a controlled judgment and song position, completion unlocks the next difficulty and displays accurate results, crash records a best score without unlocking, and restart resets run score/combo.
-- [ ] **Step 2: Run integration test and confirm expected Phase 5 behavior is absent**
+- [x] **Step 2: Run integration test and confirm expected Phase 5 behavior is absent**
   Run: `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --script res://tests/test_phase5_integration.gd`
   Expected: one or more Phase 5 assertions fail while the existing project still parses.
-- [ ] **Step 3: Integrate scorer lifecycle and menu difficulty selection**
+- [x] **Step 3: Integrate scorer lifecycle and menu difficulty selection**
   Load the progression profile during `_ready`; initialize the menu with a difficulty selector restricted to unlocked choices. Make chart preparation accept the selected difficulty and use it in both procedural and authored fallback metadata. Reject locked difficulty at the start boundary.
-- [ ] **Step 4: Integrate scoring and update the HUD**
+- [x] **Step 4: Integrate scoring and update the HUD**
   Configure scorer targets from chart events at run start. Pass `Player.jumped` timestamps into `record_jump`; call `advance_to` with current song position each playing frame. Update score, combo, best combo, judgment feedback, accuracy, BPM, and progress bar from scorer/conductor state.
-- [ ] **Step 5: Integrate completion, crash, pause, and restart summaries**
+- [x] **Step 5: Integrate completion, crash, pause, and restart summaries**
   Finalize unresolved targets exactly once on terminal outcomes. Record the best score for both completed and crashed runs; unlock the next difficulty only on completion. Display judgment counts, score, accuracy, and best combo on results/crash screens. Reset scorer at each run; preserve pause clock behavior.
-- [ ] **Step 6: Run focused integration and existing smoke tests**
+- [x] **Step 6: Run focused integration and existing smoke tests**
   Run: `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --script res://tests/test_phase5_integration.gd`
   Then run: `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --script res://tests/test_project_smoke.gd`
   Expected: both print their PASS marker and exit 0.
-- [ ] **Step 7: Run the full project test suite and editor parse check**
+- [x] **Step 7: Run the full project test suite and editor parse check**
   Run each `tests/test_*.gd` with `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --script res://tests/<test-file>.gd`, then run `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --check-only --script res://scripts/main.gd`.
   Expected: all test PASS markers, exit 0 for every command, and no parse errors.
-- [ ] **Step 8: Commit the integrated phase**
+- [x] **Step 8: Commit the integrated phase**
   Commit message: `feat: add phase 5 scoring and progression`
 
 ## Completion Checklist
 
-- [ ] All Phase 5 acceptance criteria in the spec are covered.
-- [ ] Existing Phase 1–4 tests and smoke flow pass.
-- [ ] `git diff --check` reports no whitespace errors.
-- [ ] Update the phase roadmap/status documentation with completed Phase 5 behavior and verification evidence.
+- [x] All Phase 5 acceptance criteria in the spec are covered.
+- [x] Existing Phase 1–4 tests and smoke flow pass.
+- [x] `git diff --check` reports no whitespace errors.
+- [x] Update the phase roadmap/status documentation with completed Phase 5 behavior and verification evidence.

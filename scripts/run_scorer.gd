@@ -4,7 +4,7 @@ class_name RunScorer
 const PERFECT_WINDOW := 0.045
 const GREAT_WINDOW := 0.090
 const GOOD_WINDOW := 0.150
-const WINDOW_EPSILON := 0.000001
+const WINDOW_EPSILON := 0.0000001
 
 var _targets: Array[float] = []
 var _cursor := 0
@@ -19,6 +19,7 @@ var _accuracy_weight := 0.0
 
 func configure(target_times: Array) -> bool:
 	_reset()
+	var validated_targets: Array[float] = []
 	var previous := -INF
 	for raw_time in target_times:
 		if typeof(raw_time) not in [TYPE_INT, TYPE_FLOAT]:
@@ -26,8 +27,9 @@ func configure(target_times: Array) -> bool:
 		var target := float(raw_time)
 		if not is_finite(target) or target < 0.0 or target <= previous:
 			return false
-		_targets.append(target)
+		validated_targets.append(target)
 		previous = target
+	_targets = validated_targets
 	return true
 
 func advance_to(song_position: float) -> Array[Dictionary]:
@@ -81,6 +83,9 @@ func finalize() -> Dictionary:
 	while _cursor < _targets.size():
 		_record_miss(_cursor, GOOD_WINDOW)
 		_cursor += 1
+	return _summary()
+
+func get_summary() -> Dictionary:
 	return _summary()
 
 func _record_miss(target_index: int, timing_error: float) -> Dictionary:
