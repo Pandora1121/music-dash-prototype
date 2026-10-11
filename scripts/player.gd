@@ -8,6 +8,17 @@ signal jumped(song_position: float)
 
 var crashed_state := false
 var timing_position := 0.0
+var beat_glow_strength := 0.0
+
+func apply_beat_pulse(strength: float) -> void:
+	beat_glow_strength = maxf(beat_glow_strength, clampf(strength, 0.0, 1.0))
+	queue_redraw()
+
+func _process(delta: float) -> void:
+	if beat_glow_strength <= 0.0:
+		return
+	beat_glow_strength = move_toward(beat_glow_strength, 0.0, delta * 3.6)
+	queue_redraw()
 
 func _physics_process(delta: float) -> void:
 	if crashed_state:
@@ -42,7 +53,7 @@ func reset_player() -> void:
 
 func _draw() -> void:
 	var body := Rect2(Vector2(-18, -26), Vector2(36, 52))
-	draw_rect(body.grow(7), Color(0.05, 0.9, 1.0, 0.12), true)
+	draw_rect(body.grow(7.0 + beat_glow_strength * 9.0), Color(0.05, 0.9, 1.0, 0.12 + beat_glow_strength * 0.24), true)
 	draw_rect(body, Color("48f5ff"), true)
 	draw_rect(Rect2(Vector2(-9, -16), Vector2(17, 4)), Color("071326"), true)
 	draw_colored_polygon(PackedVector2Array([Vector2(13, -8), Vector2(24, 0), Vector2(13, 8)]), Color.WHITE)

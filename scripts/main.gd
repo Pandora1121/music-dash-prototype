@@ -26,6 +26,7 @@ func _ready() -> void:
 	_audio_conductor = AudioConductorScript.new()
 	_audio_conductor.name = "AudioConductor"
 	add_child(_audio_conductor)
+	_audio_conductor.beat_reached.connect(_on_beat_reached)
 	_level = LevelControllerScript.new()
 	_level.name = "LevelController"
 	add_child(_level)
@@ -217,6 +218,15 @@ func _on_player_jumped(_position_seconds: float) -> void:
 	_jump_count += 1
 	if is_instance_valid(_status_label):
 		_status_label.text = "JUMP  %02d" % _jump_count
+
+func _on_beat_reached(beat_index: int, _song_position: float) -> void:
+	if screen_state != &"playing":
+		return
+	var pulse_strength := 1.0 if beat_index % 4 == 0 else 0.52
+	if is_instance_valid(_world):
+		_world.on_beat(beat_index)
+	if is_instance_valid(_player):
+		_player.apply_beat_pulse(pulse_strength)
 
 func _on_player_crashed() -> void:
 	if screen_state != &"playing":
