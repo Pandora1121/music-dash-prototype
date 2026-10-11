@@ -4,7 +4,7 @@ signal obstacle_due(event: Dictionary)
 signal completed
 
 const ObstacleChart = preload("res://scripts/obstacle_chart.gd")
-const BPM := 420.0
+const BPM := 120.0
 const PLAYER_X := 240.0
 const SPAWN_X := 1360.0
 const SCROLL_SPEED := 360.0
