@@ -80,7 +80,7 @@
 - [x] **Step 4: Run persistence tests and confirm they pass**
   Run: `& 'D:\steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe' --headless --path . --script res://tests/test_progression_store.gd`
   Expected: `PASS: progression store` and exit code 0.
-- [ ] **Step 5: Commit store and tests**
+- [x] **Step 5: Commit store and tests**
   Commit message: `feat: persist local difficulty progression`
 
 ### Task 3: Gameplay and Results Integration
