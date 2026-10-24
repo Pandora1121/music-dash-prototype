@@ -100,6 +100,9 @@ func play_chart() -> bool:
 func back() -> void:
 	back_requested.emit(current_chart())
 
+func set_status_message(message: String) -> void:
+	_set_status(message)
+
 func _build_interface() -> void:
 	var content := VBoxContainer.new()
 	content.name = "EditorContent"

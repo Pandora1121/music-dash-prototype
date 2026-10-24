@@ -6,6 +6,8 @@ const LevelControllerScript = preload("res://scripts/level_controller.gd")
 const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
 const CustomMusicLoaderScript = preload("res://scripts/custom_music_loader.gd")
 const ChartGeneratorScript = preload("res://scripts/procedural_chart_generator.gd")
+const ChartDataScript = preload("res://scripts/chart_data.gd")
+const ChartEditorScene = preload("res://scenes/chart_editor.tscn")
 const ObstacleChartScript = preload("res://scripts/obstacle_chart.gd")
 const RunScorerScript = preload("res://scripts/run_scorer.gd")
 const ProgressionStoreScript = preload("res://scripts/progression_store.gd")
@@ -33,21 +35,28 @@ var difficulty_selector: OptionButton
 var _difficulty_info_label: Label
 var builtin_track_button: Button
 var custom_wav_button: Button
+var level_editor_button: Button
 var song_details_label: Label
 var song_error_label: Label
 var _jump_count := 0
 var _audio_conductor: Node
 var _prepared_chart: Dictionary = {}
+var _edited_chart: Dictionary = {}
 var _music_analysis: Dictionary = {}
 var _builtin_track: Dictionary = {}
 var _selected_track: Dictionary = {}
 var _custom_music_loader: RefCounted
 var _custom_file_dialog: FileDialog
+var _chart_editor: Control
+var _chart_load_dialog: FileDialog
+var _chart_save_dialog: FileDialog
+var _pending_chart_save: Dictionary = {}
 var _scorer: RefCounted
 var _progression_store: RefCounted
 var _run_finalized := false
 var selected_difficulty: StringName = &"Easy"
 @export var progression_profile_path := "user://music_dash_profile.json"
+@export var chart_directory := "user://music_dash_charts"
 
 func _ready() -> void:
 	_ensure_input_actions()
@@ -202,15 +211,23 @@ func _build_menu() -> void:
 	column.add_child(difficulty_selector)
 	_update_difficulty_info()
 
+	var run_actions := HBoxContainer.new()
+	run_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	run_actions.add_theme_constant_override("separation", 12)
+	column.add_child(run_actions)
 	start_button = Button.new()
 	start_button.text = "START PROTOTYPE"
-	start_button.custom_minimum_size = Vector2(240, 58)
-	start_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	start_button.custom_minimum_size = Vector2(220, 58)
 	start_button.add_theme_color_override("font_color", Color("06111c"))
 	start_button.add_theme_stylebox_override("normal", _button_style(ACCENT))
 	start_button.add_theme_stylebox_override("hover", _button_style(Color("9afaff")))
 	start_button.pressed.connect(_start_run)
-	column.add_child(start_button)
+	run_actions.add_child(start_button)
+	level_editor_button = Button.new()
+	level_editor_button.text = "LEVEL EDITOR"
+	level_editor_button.custom_minimum_size = Vector2(190, 58)
+	level_editor_button.pressed.connect(_open_chart_editor)
+	run_actions.add_child(level_editor_button)
 
 	var hint := Label.new()
 	hint.text = "SPACE / UP TO JUMP    •    ESC TO PAUSE"
@@ -265,6 +282,14 @@ func _prepare_chart() -> bool:
 	if _selected_track.is_empty():
 		_set_song_error("Select a song before starting a chart.")
 		return false
+	if not _edited_chart.is_empty():
+		var edited_gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, SCROLL_SPEED)
+		if edited_gameplay.get("status") != &"ok":
+			_set_song_error(String(edited_gameplay.get("reason", "The edited chart is not ready to play.")))
+			return false
+		_prepared_chart = edited_gameplay
+		_set_song_error("")
+		return true
 	if not _prepared_chart.is_empty() and _prepared_chart.get("difficulty", &"") == selected_difficulty:
 		return _prepared_chart.get("status") == &"ok" and not _prepared_chart.get("events", []).is_empty()
 	_music_analysis = _selected_track.get("analysis", {})
@@ -330,9 +355,143 @@ func _try_commit_track(track: Dictionary, chart: Dictionary) -> bool:
 	_selected_track = track.duplicate(false)
 	_music_analysis = analysis_value
 	_prepared_chart = chart.duplicate(true)
+	_edited_chart.clear()
 	_update_song_details()
 	_set_song_error("")
 	return true
+
+func _open_chart_editor() -> void:
+	if screen_state != &"menu" or not _prepare_chart():
+		return
+	var schema_chart: Dictionary = ChartDataScript.new().from_gameplay(_prepared_chart, String(_selected_track.get("display_name", "Untitled chart")))
+	var validated: Dictionary = ChartDataScript.new().validate(schema_chart, SCROLL_SPEED)
+	if validated.get("status") != &"ok":
+		_set_song_error(String(validated.get("reason", "The current chart could not be opened.")))
+		return
+	_edited_chart = validated.chart
+	_clear_screen()
+	screen_state = &"editor"
+	_chart_editor = ChartEditorScene.instantiate()
+	add_child(_chart_editor)
+	_chart_editor.configure(_edited_chart, String(_selected_track.get("display_name", "Unknown track")))
+	_chart_editor.load_requested.connect(_open_chart_load_dialog)
+	_chart_editor.save_requested.connect(_on_chart_editor_save_requested)
+	_chart_editor.play_requested.connect(_on_chart_editor_play_requested)
+	_chart_editor.back_requested.connect(_on_chart_editor_back_requested)
+	_create_chart_dialogs()
+
+func _create_chart_dialogs() -> void:
+	var chart_folder_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(chart_directory))
+	if chart_folder_error != OK and chart_folder_error != ERR_ALREADY_EXISTS:
+		_set_chart_editor_status("Could not create the local chart folder: %s." % error_string(chart_folder_error))
+	_chart_load_dialog = FileDialog.new()
+	_chart_load_dialog.title = "Load a chart"
+	_chart_load_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_chart_load_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_chart_load_dialog.use_native_dialog = true
+	_chart_load_dialog.filters = PackedStringArray(["*.json ; Music Dash chart (*.json)"])
+	_chart_load_dialog.file_selected.connect(_on_chart_file_selected)
+	_chart_load_dialog.canceled.connect(_on_chart_load_canceled)
+	add_child(_chart_load_dialog)
+	_chart_save_dialog = FileDialog.new()
+	_chart_save_dialog.title = "Save a chart"
+	_chart_save_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_chart_save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_chart_save_dialog.use_native_dialog = true
+	_chart_save_dialog.filters = PackedStringArray(["*.json ; Music Dash chart (*.json)"])
+	_chart_save_dialog.file_selected.connect(_on_chart_save_path_selected)
+	_chart_save_dialog.canceled.connect(_on_chart_save_canceled)
+	_chart_save_dialog.current_dir = ProjectSettings.globalize_path(chart_directory)
+	add_child(_chart_save_dialog)
+
+func _open_chart_load_dialog() -> void:
+	if is_instance_valid(_chart_load_dialog):
+		_chart_load_dialog.current_dir = ProjectSettings.globalize_path(chart_directory)
+		_chart_load_dialog.popup_centered_ratio(0.8)
+
+func _on_chart_file_selected(path: String) -> void:
+	_load_chart_from_path(path)
+
+func _on_chart_load_canceled() -> void:
+	pass
+
+func _on_chart_editor_save_requested(chart: Dictionary) -> void:
+	var validated: Dictionary = ChartDataScript.new().validate(chart, SCROLL_SPEED)
+	if validated.get("status") != &"ok":
+		_chart_editor.call("set_status_message", String(validated.get("reason", "Chart is invalid.")))
+		return
+	_pending_chart_save = validated.chart.duplicate(true)
+	if is_instance_valid(_chart_save_dialog):
+		_chart_save_dialog.current_dir = ProjectSettings.globalize_path(chart_directory)
+		_chart_save_dialog.current_file = _safe_chart_filename(String(_pending_chart_save.get("name", "music_dash_chart"))) + ".json"
+		_chart_save_dialog.popup_centered_ratio(0.8)
+
+func _on_chart_save_path_selected(path: String) -> void:
+	if path.get_extension().to_lower() != "json":
+		path += ".json"
+	_save_chart_to_path(path, _pending_chart_save)
+	_pending_chart_save.clear()
+
+func _on_chart_save_canceled() -> void:
+	_pending_chart_save.clear()
+
+func _save_chart_to_path(path: String, chart: Dictionary) -> bool:
+	if path.get_extension().to_lower() != "json":
+		return _report_chart_error("Choose a .json file for chart data.")
+	var result: Dictionary = ChartDataScript.new().save_file(path, chart, SCROLL_SPEED)
+	if result.get("status") != &"ok":
+		return _report_chart_error(String(result.get("reason", "Chart could not be saved.")))
+	_edited_chart = result.get("chart", chart).duplicate(true)
+	_set_chart_editor_status("Chart saved.")
+	return true
+
+func _load_chart_from_path(path: String) -> bool:
+	if path.get_extension().to_lower() != "json":
+		return _report_chart_error("Choose a .json chart file.")
+	var result: Dictionary = ChartDataScript.new().load_file(path, SCROLL_SPEED)
+	if result.get("status") != &"ok":
+		return _report_chart_error(String(result.get("reason", "Chart could not be loaded.")))
+	var loaded: Dictionary = result.chart
+	if not is_instance_valid(_chart_editor) or not _chart_editor.call("apply_loaded_chart", loaded):
+		return false
+	_edited_chart = loaded.duplicate(true)
+	var gameplay: Dictionary = ChartDataScript.new().to_gameplay(loaded, SCROLL_SPEED)
+	_prepared_chart = gameplay if gameplay.get("status") == &"ok" else {}
+	_set_chart_editor_status("Chart loaded.")
+	return true
+
+func _report_chart_error(message: String) -> bool:
+	_set_chart_editor_status(message)
+	if screen_state == &"menu":
+		_set_song_error(message)
+	return false
+
+func _set_chart_editor_status(message: String) -> void:
+	if is_instance_valid(_chart_editor):
+		_chart_editor.call("set_status_message", message)
+
+func _on_chart_editor_play_requested(chart: Dictionary) -> void:
+	var validated: Dictionary = ChartDataScript.new().to_gameplay(ChartDataScript.new().from_gameplay(chart, String(_selected_track.get("display_name", "Edited chart"))), SCROLL_SPEED)
+	if validated.get("status") != &"ok":
+		_set_chart_editor_status(String(validated.get("reason", "Chart could not be played.")))
+		return
+	_prepared_chart = validated
+	_edited_chart = ChartDataScript.new().from_gameplay(validated, String(_selected_track.get("display_name", "Edited chart")))
+	_start_run()
+
+func _on_chart_editor_back_requested(chart: Dictionary) -> void:
+	var validated: Dictionary = ChartDataScript.new().validate(chart, SCROLL_SPEED)
+	if validated.get("status") == &"ok":
+		_edited_chart = validated.chart
+		var gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, SCROLL_SPEED)
+		_prepared_chart = gameplay if gameplay.get("status") == &"ok" else {}
+	_build_menu()
+
+func _safe_chart_filename(chart_name: String) -> String:
+	var safe_name := chart_name.strip_edges().to_lower().replace(" ", "_")
+	for character in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
+		safe_name = safe_name.replace(character, "")
+	return safe_name if not safe_name.is_empty() else "music_dash_chart"
 
 func _open_custom_file_dialog() -> void:
 	if is_instance_valid(_custom_file_dialog):
@@ -644,9 +803,14 @@ func _clear_screen() -> void:
 	_difficulty_info_label = null
 	builtin_track_button = null
 	custom_wav_button = null
+	level_editor_button = null
 	song_details_label = null
 	song_error_label = null
 	_custom_file_dialog = null
+	_chart_editor = null
+	_chart_load_dialog = null
+	_chart_save_dialog = null
+	_pending_chart_save.clear()
 	_overlay_body_label = null
 
 func _button_style(color: Color) -> StyleBoxFlat:
