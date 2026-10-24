@@ -26,11 +26,19 @@ From the menu, choose **LOAD CUSTOM WAV** and select a local `.wav` file. The pr
 
 ## Level Editor (Phase 6B)
 
-The main menu's **LEVEL EDITOR** opens the runtime chart editor for the currently selected song. It creates a beat grid from the analyzed BPM, lets you cycle each beat between empty, spike, and block, and validates timing and obstacle spacing before accepting edits. **LOAD** and **SAVE** exchange chart files; **PLAY** starts the selected song with the edited chart. Runtime charts are saved under `user://music_dash_charts/` by default. The selected song's audio remains session-local and is never written into chart JSON.
+The main menu's **LEVEL EDITOR** opens the runtime chart editor for the currently selected song. It creates a beat grid from the analyzed BPM, lets you cycle each beat between empty, spike, block, saw, and crystal, and validates timing and obstacle spacing before accepting edits. **LOAD** and **SAVE** exchange chart files; **PLAY** starts the selected song with the edited chart. Runtime charts are saved under `user://music_dash_charts/` by default. The selected song's audio remains session-local and is never written into chart JSON.
 
-The Godot editor also has a **MUSIC DASH Charts** dock (right dock area). Use **NEW GRID** to set a chart name, BPM, and duration, then select a beat index and choose **SPIKE** or **BLOCK** to place an obstacle; **REMOVE** clears that beat. **OPEN JSON** and **SAVE JSON** use the same schema as the in-game editor. The dock defaults to the project's `charts/` folder. Its plugin is enabled in `project.godot` and can be toggled in **Project > Project Settings > Plugins**.
+The Godot editor also has a **MUSIC DASH Charts** dock (right dock area). Use **NEW GRID** to set a chart name, BPM, and duration, then select a beat index and choose **SPIKE**, **BLOCK**, **SAW**, or **CRYSTAL** to place an obstacle; **REMOVE** clears that beat. **OPEN JSON** and **SAVE JSON** use the same schema as the in-game editor. The dock defaults to the project's `charts/` folder. Its plugin is enabled in `project.godot` and can be toggled in **Project > Project Settings > Plugins**.
 
 Chart JSON version 1 stores the chart name, BPM, duration, beat times, and obstacle events. It does not store audio files or audio paths, so a chart can be shared independently of locally selected music. The editor covers beat/event authoring; waveform editing and cloud sharing are not included.
+
+## Gameplay Polish (Phase 7)
+
+Obstacle speed now responds to the track BPM and selected difficulty. Chart density responds to difficulty and the analyzed average music intensity; per-beat onset and bass/treble features also guide placement and shape. Easy through Insane use increasing speed/density. The chart stays deterministic for a given song analysis and seed, while spawn lead time and minimum obstacle spacing use the active speed so faster charts remain fair.
+
+Four jumpable hazard shapes are available: spike, block, rotating saw, and pulsing crystal. The runner has lightweight run/jump/landing/crash poses, and the neon map shifts palette by musical section and reacts to beat energy. The HUD shows **JUMP IN** with a countdown, switches to **JUMP NOW** near the scoring window, tracks progress to the next combo bonus, and briefly shows **MISS • COMBO RESET** when a target is missed.
+
+These visuals use built-in vector drawing and a fixed small set of background details. The score HUD refreshes when a judgment changes, rather than rebuilding score text every frame. Gameplay timing still comes from the audio clock; the visual polish does not change jump physics or score windows.
 
 Art is drawn from built-in shapes, so there are no external art assets or licenses to install. The prototype audio was generated for this project and uses no sampled third-party sounds.
 
