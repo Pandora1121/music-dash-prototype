@@ -59,4 +59,17 @@ if ($LASTEXITCODE -ne 0) { throw "Main script parse check failed" }
 
 If `godot` is not on `PATH`, replace it with the full path to `Godot_v4.7.2-stable_win64_console.exe`.
 
-Windows export requires matching Godot 4.7.2 export templates.
+Check the Windows export helper contract with `pwsh -NoProfile -File tests/test_export_windows_script.ps1`.
+
+## Windows Build (Phase 8)
+
+This project includes a 64-bit Windows Desktop preset. Before exporting, open the project in Godot 4.7.2 stable and install the matching standard export templates from **Editor > Manage Export Templates**. The engine and template versions must match; Godot's [export guide](https://docs.godotengine.org/en/4.7/tutorials/export/exporting_projects.html) explains template setup.
+
+From PowerShell, run:
+
+```powershell
+$godot = (Get-Command Godot_v4.7.2-stable_win64_console.exe).Source
+.\scripts\export_windows.ps1 -GodotPath $godot
+```
+
+The script validates the engine version, exports and starts the executable in a headless smoke check, then creates `builds/windows/MusicDash-Windows-x64.zip`. Extract the ZIP and run `MusicDash.exe`. The exported executable contains the project resources; the Godot project folder is not needed to play it. Build outputs are local and excluded from Git.
