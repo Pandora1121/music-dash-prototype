@@ -260,6 +260,7 @@ func _start_run() -> void:
 	_world.set_script(load("res://scripts/game_world.gd"))
 	_world.name = "GameWorld"
 	add_child(_world)
+	_world.call("set_music_profile", _selected_track.get("analysis", {}), selected_difficulty)
 
 	var floor_body := StaticBody2D.new()
 	floor_body.position = Vector2(640, 625)
@@ -722,7 +723,10 @@ func _on_beat_reached(beat_index: int, _song_position: float) -> void:
 		return
 	var pulse_strength := 1.0 if beat_index % 4 == 0 else 0.52
 	if is_instance_valid(_world):
-		_world.on_beat(beat_index)
+		var analysis: Dictionary = _selected_track.get("analysis", {})
+		var features: Array = analysis.get("beat_features", [])
+		var intensity := float(features[beat_index].get("intensity", 0.0)) if beat_index >= 0 and beat_index < features.size() else 0.0
+		_world.on_beat(beat_index, intensity)
 	if is_instance_valid(_player):
 		_player.apply_beat_pulse(pulse_strength)
 
@@ -732,6 +736,8 @@ func _on_player_crashed() -> void:
 	screen_state = &"crashed"
 	_audio_conductor.stop_song()
 	_level.reset_level()
+	if is_instance_valid(_player):
+		_player.process_mode = Node.PROCESS_MODE_ALWAYS
 	_world.process_mode = Node.PROCESS_MODE_DISABLED
 	_show_run_result(false)
 

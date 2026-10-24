@@ -23,8 +23,9 @@ func _initialize() -> void:
 	var player: Node = instance.get_node("GameWorld/Player")
 	assert(is_equal_approx(world.get("beat_pulse_strength"), 1.0), "downbeat should pulse the game world")
 	assert(is_equal_approx(player.get("beat_glow_strength"), 1.0), "downbeat should pulse the player glow")
+	var opening_tint: Color = world.get("section_tint")
 	conductor.call("consume_beats_until", 8.0)
-	assert(world.get("section_tint") == Color("b96bff"), "every 16th beat should change the environment color")
+	assert(int(world.get("section_index")) == 1 and not world.get("section_tint").is_equal_approx(opening_tint), "every 16th beat should change the section palette")
 	var level: Node = instance.get_node("LevelController")
 	var chart: Dictionary = instance.get("_prepared_chart")
 	var first_event: Dictionary = chart.events[0]
