@@ -31,6 +31,17 @@ func _test_empty_chart_and_round_trip() -> void:
 	assert(decoded.get("status") == &"ok", "serialized chart should parse")
 	assert(decoded.chart.beat_times == chart.beat_times, "round trip should preserve analyzed beat times")
 	assert(decoded.chart.events == chart.events, "round trip should preserve event indices and kinds")
+	var all_kinds := _valid_chart()
+	all_kinds.events = [
+		{"beat_index": 8, "kind": &"spike"},
+		{"beat_index": 10, "kind": &"block"},
+		{"beat_index": 12, "kind": &"saw"},
+		{"beat_index": 14, "kind": &"crystal"},
+	]
+	var all_kinds_result: Dictionary = data.validate(all_kinds)
+	assert(all_kinds_result.status == &"ok" and all_kinds_result.chart.events.size() == 4, "schema v1 should accept all four jumpable obstacle kinds")
+	var all_kinds_encoded: Dictionary = data.serialize(all_kinds)
+	assert(data.parse_json(all_kinds_encoded.text).status == &"ok", "JSON should round-trip the added obstacle kinds")
 	assert(not encoded.text.contains("D:/") and not encoded.text.contains("C:/"), "chart JSON should not contain an absolute audio path")
 
 func _test_gameplay_conversion() -> void:
@@ -79,6 +90,9 @@ func _test_rejects_invalid_json_and_schema() -> void:
 	var audio_path := _valid_chart()
 	audio_path.audio_path = "D:/private/song.wav"
 	assert(data.validate(audio_path).get("status") == &"failed", "schema should reject persisted audio paths")
+	var unknown_kind := _valid_chart()
+	unknown_kind.events = [{"beat_index": 8, "kind": &"laser"}]
+	assert(data.validate(unknown_kind).get("status") == &"failed", "unknown obstacle kinds should fail")
 
 func _test_rejects_invalid_beats_and_events() -> void:
 	var data: RefCounted = ChartDataScript.new()

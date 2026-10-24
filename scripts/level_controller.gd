@@ -9,7 +9,7 @@ const BPM := 120.0
 const PLAYER_X := 240.0
 const SPAWN_X := 1360.0
 const SCROLL_SPEED := 360.0
-const TRAVEL_TIME := (SPAWN_X - PLAYER_X) / SCROLL_SPEED
+const TRAVEL_DISTANCE := SPAWN_X - PLAYER_X
 
 var elapsed := 0.0
 var chart_cursor := 0
@@ -17,6 +17,8 @@ var active := false
 var _events: Array[Dictionary] = []
 var _chart_beat_times: Array = []
 var _chart_bpm := BPM
+var _scroll_speed := SCROLL_SPEED
+var _travel_time := TRAVEL_DISTANCE / SCROLL_SPEED
 var _beat_chart: RefCounted
 
 func _init() -> void:
@@ -54,7 +56,7 @@ func set_chart(chart: Dictionary) -> void:
 			return
 		var beat_index := int(raw_event.get("beat_index", -1))
 		var kind: StringName = raw_event.get("kind", &"")
-		if beat_index <= previous_index or kind not in [&"spike", &"block"] or (not beat_times.is_empty() and beat_index >= beat_times.size()):
+		if beat_index <= previous_index or kind not in [&"spike", &"block", &"saw", &"crystal"] or (not beat_times.is_empty() and beat_index >= beat_times.size()):
 			_use_authored_chart()
 			return
 		validated_events.append({"beat_index": beat_index, "kind": kind})
@@ -63,14 +65,25 @@ func set_chart(chart: Dictionary) -> void:
 	if not is_finite(bpm_value) or bpm_value <= 0.0:
 		_use_authored_chart()
 		return
+	var speed_value: Variant = chart.get("scroll_speed", SCROLL_SPEED)
+	if typeof(speed_value) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(speed_value)) or float(speed_value) <= 0.0:
+		_use_authored_chart()
+		return
 	_events = validated_events
 	_chart_bpm = bpm_value
 	_chart_beat_times = beat_times.duplicate()
+	_scroll_speed = float(speed_value)
+	_travel_time = TRAVEL_DISTANCE / _scroll_speed
+
+func scroll_speed() -> float:
+	return _scroll_speed
 
 func _use_authored_chart() -> void:
 	_events = ObstacleChart.new().events()
 	_chart_beat_times.clear()
 	_chart_bpm = BPM
+	_scroll_speed = SCROLL_SPEED
+	_travel_time = TRAVEL_DISTANCE / SCROLL_SPEED
 
 func reset_level() -> void:
 	active = false
@@ -84,7 +97,7 @@ func advance(song_position: float, audio_offset_seconds: float = 0.0, bpm: float
 	while chart_cursor < _events.size():
 		var event: Dictionary = _events[chart_cursor]
 		var hit_time := _event_time(event, audio_offset_seconds, bpm)
-		if hit_time - TRAVEL_TIME > elapsed:
+		if hit_time - _travel_time > elapsed:
 			break
 		obstacle_due.emit(event)
 		chart_cursor += 1

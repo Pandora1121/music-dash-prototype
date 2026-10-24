@@ -6,6 +6,7 @@ const DEFAULT_SCROLL_SPEED := 360.0
 const MIN_REACTION_SECONDS := 0.8
 const COLLISION_WIDTH_PIXELS := 48.0
 const PLAYER_WARNING_DISTANCE_PIXELS := 1120.0
+const OBSTACLE_KINDS: Array[StringName] = [&"spike", &"block", &"saw", &"crystal"]
 const CHART_KEYS: Array[String] = ["format_version", "name", "bpm", "duration_seconds", "beat_times", "events"]
 
 func new_empty(name: String, bpm: float, duration_seconds: float) -> Dictionary:
@@ -76,8 +77,8 @@ func validate(chart: Dictionary, scroll_speed: float = DEFAULT_SCROLL_SPEED) -> 
 		var kind_text := String(raw_event.kind)
 		if beat_index <= previous_index or beat_index < 0 or beat_index >= beat_times.size():
 			return _failure("Event beat indices must be unique, ordered, and inside the beat grid.")
-		if kind_text not in ["spike", "block"]:
-			return _failure("Obstacle kind must be spike or block.")
+		if StringName(kind_text) not in OBSTACLE_KINDS:
+			return _failure("Obstacle kind must be spike, block, saw, or crystal.")
 		var target_time := beat_times[beat_index]
 		if target_time < warning_time:
 			return _failure("An obstacle must leave at least %.2f seconds of spawn warning." % warning_time)

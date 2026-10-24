@@ -12,6 +12,9 @@ func _initialize() -> void:
 	assert(first.events == repeat.events, "same inputs and seed should produce identical events")
 	assert(first.events != alternate.events, "different seeds should vary a sufficiently long chart")
 	assert(first.events.size() > 0, "generated chart should contain obstacles")
+	assert(is_equal_approx(float(first.get("scroll_speed", -1.0)), 360.0), "chart should expose the speed used by its fairness checks")
+	_test_music_selects_new_hazard_shapes(generator)
+	_test_requested_speed_controls_chart_fairness(generator, analysis)
 	_check_chart(generator, analysis, &"Easy")
 	_check_chart(generator, analysis, &"Normal")
 	_check_chart(generator, analysis, &"Hard")
@@ -39,12 +42,38 @@ func _check_chart(generator: RefCounted, analysis: Dictionary, difficulty: Strin
 		var beat_index := int(event.beat_index)
 		var hit_time := float(chart.beat_times[beat_index])
 		assert(beat_index > previous_index, "event beat indices should be strictly ordered")
-		assert(event.kind in [&"spike", &"block"], "only supported obstacle kinds should be generated")
-		assert(hit_time >= 1120.0 / 360.0, "events should leave enough spawn warning time")
+		assert(event.kind in [&"spike", &"block", &"saw", &"crystal"], "only supported obstacle kinds should be generated")
+		assert(hit_time >= 1120.0 / float(chart.get("scroll_speed", 360.0)), "events should leave enough spawn warning time")
 		if previous_index >= 0:
-			assert(hit_time - previous_time - 48.0 / 360.0 >= 0.8, "events should preserve reaction time after obstacle travel width")
+			assert(hit_time - previous_time - 48.0 / float(chart.get("scroll_speed", 360.0)) >= 0.8, "events should preserve reaction time after obstacle travel width")
 		previous_index = beat_index
 		previous_time = hit_time
+
+func _test_music_selects_new_hazard_shapes(generator: RefCounted) -> void:
+	var analysis := _make_analysis(200)
+	for index in range(analysis.beat_features.size()):
+		analysis.beat_features[index] = {"onset": 1.0, "bass": 1.0, "mid": 0.5, "treble": 0.0, "intensity": 1.0}
+	var bass_chart: Dictionary = generator.generate(analysis, &"Insane", 1234, 360.0)
+	assert(not bass_chart.events.is_empty(), "strong bass music should generate events")
+	for event in bass_chart.events:
+		assert(event.kind == &"saw", "strong bass should select the saw hazard")
+	for index in range(analysis.beat_features.size()):
+		analysis.beat_features[index] = {"onset": 1.0, "bass": 0.0, "mid": 0.5, "treble": 1.0, "intensity": 1.0}
+	var treble_chart: Dictionary = generator.generate(analysis, &"Insane", 1234, 360.0)
+	assert(not treble_chart.events.is_empty(), "strong treble music should generate events")
+	for event in treble_chart.events:
+		assert(event.kind == &"crystal", "strong treble should select the crystal hazard")
+
+func _test_requested_speed_controls_chart_fairness(generator: RefCounted, analysis: Dictionary) -> void:
+	var faster: Dictionary = generator.generate(analysis, &"Insane", 8128, 500.0)
+	assert(faster.status == &"ok" and float(faster.get("scroll_speed", -1.0)) == 500.0, "chart should retain the selected difficulty speed")
+	var previous_time := -INF
+	for event in faster.events:
+		var target_time := float(faster.beat_times[event.beat_index])
+		assert(target_time >= 1120.0 / 500.0, "fast chart events should preserve the spawn warning")
+		if previous_time > -INF:
+			assert(target_time - previous_time >= 0.8 + 48.0 / 500.0, "fast chart events should preserve reaction spacing for their speed")
+		previous_time = target_time
 
 func _make_analysis(beat_count: int) -> Dictionary:
 	var beat_times: Array[float] = []

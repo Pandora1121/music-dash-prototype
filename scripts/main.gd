@@ -7,6 +7,7 @@ const AudioConductorScript = preload("res://scripts/audio_conductor.gd")
 const CustomMusicLoaderScript = preload("res://scripts/custom_music_loader.gd")
 const ChartGeneratorScript = preload("res://scripts/procedural_chart_generator.gd")
 const ChartDataScript = preload("res://scripts/chart_data.gd")
+const GameplayProfileScript = preload("res://scripts/gameplay_profile.gd")
 const ChartEditorScene = preload("res://scenes/chart_editor.tscn")
 const ObstacleChartScript = preload("res://scripts/obstacle_chart.gd")
 const RunScorerScript = preload("res://scripts/run_scorer.gd")
@@ -283,10 +284,12 @@ func _prepare_chart() -> bool:
 		_set_song_error("Select a song before starting a chart.")
 		return false
 	if not _edited_chart.is_empty():
-		var edited_gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, SCROLL_SPEED)
+		var current_speed := _current_chart_speed()
+		var edited_gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, current_speed)
 		if edited_gameplay.get("status") != &"ok":
 			_set_song_error(String(edited_gameplay.get("reason", "The edited chart is not ready to play.")))
 			return false
+		edited_gameplay["scroll_speed"] = current_speed
 		_prepared_chart = edited_gameplay
 		_set_song_error("")
 		return true
@@ -297,7 +300,7 @@ func _prepare_chart() -> bool:
 		_set_song_error(String(_music_analysis.get("reason", "The selected song could not be analyzed.")))
 		return false
 	if _selected_track.get("source", &"builtin") == &"custom":
-		var generated: Dictionary = ChartGeneratorScript.new().generate(_music_analysis, selected_difficulty, 7341, SCROLL_SPEED)
+		var generated: Dictionary = ChartGeneratorScript.new().generate(_music_analysis, selected_difficulty, 7341, _current_chart_speed())
 		if generated.get("status") != &"ok" or not (generated.get("events", []) is Array) or generated.events.is_empty():
 			_set_song_error("No fair obstacles could be generated for this song and difficulty. Choose another WAV or difficulty.")
 			return false
@@ -331,7 +334,8 @@ func _select_custom_track(path: String) -> bool:
 	if track.get("status") != &"ok":
 		_set_song_error(String(track.get("reason", "The selected WAV could not be loaded.")))
 		return false
-	var chart: Dictionary = ChartGeneratorScript.new().generate(track.analysis, selected_difficulty, 7341, SCROLL_SPEED)
+	var chart_speed := _scroll_speed_for_analysis(track.analysis, selected_difficulty)
+	var chart: Dictionary = ChartGeneratorScript.new().generate(track.analysis, selected_difficulty, 7341, chart_speed)
 	if chart.get("status") != &"ok" or not (chart.get("events", []) is Array) or chart.events.is_empty():
 		_set_song_error("No fair obstacles could be generated for this song and difficulty. Choose another WAV or difficulty.")
 		return false
@@ -364,7 +368,8 @@ func _open_chart_editor() -> void:
 	if screen_state != &"menu" or not _prepare_chart():
 		return
 	var schema_chart: Dictionary = ChartDataScript.new().from_gameplay(_prepared_chart, String(_selected_track.get("display_name", "Untitled chart")))
-	var validated: Dictionary = ChartDataScript.new().validate(schema_chart, SCROLL_SPEED)
+	var chart_speed := _current_chart_speed()
+	var validated: Dictionary = ChartDataScript.new().validate(schema_chart, chart_speed)
 	if validated.get("status") != &"ok":
 		_set_song_error(String(validated.get("reason", "The current chart could not be opened.")))
 		return
@@ -373,7 +378,7 @@ func _open_chart_editor() -> void:
 	screen_state = &"editor"
 	_chart_editor = ChartEditorScene.instantiate()
 	add_child(_chart_editor)
-	_chart_editor.configure(_edited_chart, String(_selected_track.get("display_name", "Unknown track")))
+	_chart_editor.configure(_edited_chart, String(_selected_track.get("display_name", "Unknown track")), chart_speed)
 	_chart_editor.load_requested.connect(_open_chart_load_dialog)
 	_chart_editor.save_requested.connect(_on_chart_editor_save_requested)
 	_chart_editor.play_requested.connect(_on_chart_editor_play_requested)
@@ -416,7 +421,7 @@ func _on_chart_load_canceled() -> void:
 	pass
 
 func _on_chart_editor_save_requested(chart: Dictionary) -> void:
-	var validated: Dictionary = ChartDataScript.new().validate(chart, SCROLL_SPEED)
+	var validated: Dictionary = ChartDataScript.new().validate(chart, _current_chart_speed())
 	if validated.get("status") != &"ok":
 		_chart_editor.call("set_status_message", String(validated.get("reason", "Chart is invalid.")))
 		return
@@ -438,7 +443,7 @@ func _on_chart_save_canceled() -> void:
 func _save_chart_to_path(path: String, chart: Dictionary) -> bool:
 	if path.get_extension().to_lower() != "json":
 		return _report_chart_error("Choose a .json file for chart data.")
-	var result: Dictionary = ChartDataScript.new().save_file(path, chart, SCROLL_SPEED)
+	var result: Dictionary = ChartDataScript.new().save_file(path, chart, _current_chart_speed())
 	if result.get("status") != &"ok":
 		return _report_chart_error(String(result.get("reason", "Chart could not be saved.")))
 	_edited_chart = result.get("chart", chart).duplicate(true)
@@ -448,14 +453,17 @@ func _save_chart_to_path(path: String, chart: Dictionary) -> bool:
 func _load_chart_from_path(path: String) -> bool:
 	if path.get_extension().to_lower() != "json":
 		return _report_chart_error("Choose a .json chart file.")
-	var result: Dictionary = ChartDataScript.new().load_file(path, SCROLL_SPEED)
+	var current_speed := _current_chart_speed()
+	var result: Dictionary = ChartDataScript.new().load_file(path, current_speed)
 	if result.get("status") != &"ok":
 		return _report_chart_error(String(result.get("reason", "Chart could not be loaded.")))
 	var loaded: Dictionary = result.chart
 	if not is_instance_valid(_chart_editor) or not _chart_editor.call("apply_loaded_chart", loaded):
 		return false
 	_edited_chart = loaded.duplicate(true)
-	var gameplay: Dictionary = ChartDataScript.new().to_gameplay(loaded, SCROLL_SPEED)
+	var gameplay: Dictionary = ChartDataScript.new().to_gameplay(loaded, current_speed)
+	if gameplay.get("status") == &"ok":
+		gameplay["scroll_speed"] = current_speed
 	_prepared_chart = gameplay if gameplay.get("status") == &"ok" else {}
 	_set_chart_editor_status("Chart loaded.")
 	return true
@@ -471,19 +479,24 @@ func _set_chart_editor_status(message: String) -> void:
 		_chart_editor.call("set_status_message", message)
 
 func _on_chart_editor_play_requested(chart: Dictionary) -> void:
-	var validated: Dictionary = ChartDataScript.new().to_gameplay(ChartDataScript.new().from_gameplay(chart, String(_selected_track.get("display_name", "Edited chart"))), SCROLL_SPEED)
+	var current_speed := _current_chart_speed()
+	var validated: Dictionary = ChartDataScript.new().to_gameplay(ChartDataScript.new().from_gameplay(chart, String(_selected_track.get("display_name", "Edited chart"))), current_speed)
 	if validated.get("status") != &"ok":
 		_set_chart_editor_status(String(validated.get("reason", "Chart could not be played.")))
 		return
+	validated["scroll_speed"] = current_speed
 	_prepared_chart = validated
 	_edited_chart = ChartDataScript.new().from_gameplay(validated, String(_selected_track.get("display_name", "Edited chart")))
 	_start_run()
 
 func _on_chart_editor_back_requested(chart: Dictionary) -> void:
-	var validated: Dictionary = ChartDataScript.new().validate(chart, SCROLL_SPEED)
+	var current_speed := _current_chart_speed()
+	var validated: Dictionary = ChartDataScript.new().validate(chart, current_speed)
 	if validated.get("status") == &"ok":
 		_edited_chart = validated.chart
-		var gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, SCROLL_SPEED)
+	var gameplay: Dictionary = ChartDataScript.new().to_gameplay(_edited_chart, current_speed)
+	if gameplay.get("status") == &"ok":
+		gameplay["scroll_speed"] = current_speed
 		_prepared_chart = gameplay if gameplay.get("status") == &"ok" else {}
 	_build_menu()
 
@@ -515,7 +528,8 @@ func _set_song_error(message: String) -> void:
 		song_error_label.text = message
 
 func _chart_for_analysis(analysis: Dictionary, seed: int, difficulty: StringName = &"Easy") -> Dictionary:
-	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, difficulty, seed, SCROLL_SPEED)
+	var chart_speed := _scroll_speed_for_analysis(analysis, difficulty)
+	var generated: Dictionary = ChartGeneratorScript.new().generate(analysis, difficulty, seed, chart_speed)
 	if generated.status == &"ok" and not generated.events.is_empty():
 		generated.source = &"procedural"
 		return generated
@@ -525,10 +539,20 @@ func _chart_for_analysis(analysis: Dictionary, seed: int, difficulty: StringName
 		"seed": seed,
 		"difficulty": difficulty,
 		"bpm": ObstacleChartScript.BEATS_PER_MINUTE,
+		"scroll_speed": chart_speed if chart_speed > 0.0 else SCROLL_SPEED,
 		"duration_seconds": 21.0,
 		"beat_times": [],
 		"events": ObstacleChartScript.new().events(),
 	}
+
+func _scroll_speed_for_analysis(analysis: Dictionary, difficulty: StringName) -> float:
+	var bpm := float(analysis.get("bpm", 0.0))
+	var speed := float(GameplayProfileScript.new().scroll_speed_for(bpm, difficulty))
+	return speed if speed > 0.0 else SCROLL_SPEED
+
+func _current_chart_speed() -> float:
+	var analysis: Dictionary = _selected_track.get("analysis", {})
+	return _scroll_speed_for_analysis(analysis, selected_difficulty)
 
 func _target_times_for_chart(chart: Dictionary) -> Array[float]:
 	var target_times: Array[float] = []
@@ -557,7 +581,7 @@ func _spawn_obstacle(event: Dictionary) -> void:
 		return
 	var obstacle: Area2D = ObstacleScene.instantiate()
 	obstacle.position = Vector2(1360, 562)
-	obstacle.scroll_speed = SCROLL_SPEED
+	obstacle.scroll_speed = float(_level.call("scroll_speed"))
 	obstacle.kind = event.kind
 	_world.add_child(obstacle)
 

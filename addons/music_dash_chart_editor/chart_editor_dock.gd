@@ -46,8 +46,8 @@ func current_chart() -> Dictionary:
 	return _chart.duplicate(true)
 
 func set_beat_event(beat_index: int, kind: StringName) -> bool:
-	if kind not in [&"spike", &"block"]:
-		_set_status("Obstacle kind must be spike or block.")
+	if kind not in ChartDataScript.OBSTACLE_KINDS:
+		_set_status("Choose spike, block, saw, or crystal.")
 		return false
 	if beat_index < 0 or beat_index >= _chart.get("beat_times", []).size():
 		_set_status("Choose a beat inside the chart grid.")
@@ -137,10 +137,9 @@ func _build_interface() -> void:
 	_beat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	event_controls.add_child(_beat_input)
 	_kind_selector = OptionButton.new()
-	_kind_selector.add_item("SPIKE")
-	_kind_selector.set_item_metadata(0, &"spike")
-	_kind_selector.add_item("BLOCK")
-	_kind_selector.set_item_metadata(1, &"block")
+	for kind in ChartDataScript.OBSTACLE_KINDS:
+		_kind_selector.add_item(String(kind).to_upper())
+		_kind_selector.set_item_metadata(_kind_selector.item_count - 1, kind)
 	event_controls.add_child(_kind_selector)
 	_add_button(event_controls, "SET", _on_set_event_pressed)
 	_add_button(event_controls, "REMOVE", _on_remove_event_pressed)
@@ -252,7 +251,10 @@ func _on_event_selected(index: int) -> void:
 		return
 	var event: Dictionary = _chart.events[index]
 	_beat_input.value = int(event.beat_index)
-	_kind_selector.select(0 if event.kind == &"spike" else 1)
+	for item_index in range(_kind_selector.item_count):
+		if _kind_selector.get_item_metadata(item_index) == event.kind:
+			_kind_selector.select(item_index)
+			return
 
 func _safe_filename(value: String) -> String:
 	var result := value.strip_edges().to_lower().replace(" ", "_")

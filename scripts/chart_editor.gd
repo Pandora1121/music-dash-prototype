@@ -13,6 +13,7 @@ const MUTED := Color("8a9bbc")
 var _chart_data: RefCounted = ChartDataScript.new()
 var _chart: Dictionary = {}
 var _track_name := ""
+var _scroll_speed := ChartDataScript.DEFAULT_SCROLL_SPEED
 var _beat_grid: GridContainer
 var _track_label: Label
 var _status_label: Label
@@ -22,8 +23,13 @@ func _ready() -> void:
 	_build_interface()
 	_refresh()
 
-func configure(chart: Dictionary, track_name: String) -> void:
-	_chart = chart.duplicate(true)
+func configure(chart: Dictionary, track_name: String, scroll_speed: float = ChartDataScript.DEFAULT_SCROLL_SPEED) -> void:
+	_scroll_speed = scroll_speed if is_finite(scroll_speed) and scroll_speed > 0.0 else ChartDataScript.DEFAULT_SCROLL_SPEED
+	var validated: Dictionary = _chart_data.validate(chart, _scroll_speed)
+	if validated.get("status") != &"ok":
+		_set_status(String(validated.get("reason", "Chart is invalid.")))
+		return
+	_chart = validated.chart
 	_track_name = track_name
 	if is_node_ready():
 		_refresh()
@@ -37,15 +43,16 @@ func cycle_beat(beat_index: int) -> bool:
 	var candidate := current_chart()
 	var event_index := _event_index_for_beat(candidate.events, beat_index)
 	if event_index < 0:
-		candidate.events.append({"beat_index": beat_index, "kind": &"spike"})
+		candidate.events.append({"beat_index": beat_index, "kind": ChartDataScript.OBSTACLE_KINDS[0]})
 		candidate.events.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.beat_index) < int(b.beat_index))
 	else:
 		var current_kind := StringName(candidate.events[event_index].kind)
-		if current_kind == &"spike":
-			candidate.events[event_index].kind = &"block"
-		else:
+		var kind_index := ChartDataScript.OBSTACLE_KINDS.find(current_kind)
+		if kind_index >= ChartDataScript.OBSTACLE_KINDS.size() - 1:
 			candidate.events.remove_at(event_index)
-	var validated: Dictionary = _chart_data.validate(candidate)
+		else:
+			candidate.events[event_index].kind = ChartDataScript.OBSTACLE_KINDS[kind_index + 1]
+	var validated: Dictionary = _chart_data.validate(candidate, _scroll_speed)
 	if validated.get("status") != &"ok":
 		_set_status(String(validated.get("reason", "Chart edit is not valid.")))
 		return false
@@ -57,7 +64,7 @@ func cycle_beat(beat_index: int) -> bool:
 func clear_chart() -> bool:
 	var candidate := current_chart()
 	candidate["events"] = []
-	var validated: Dictionary = _chart_data.validate(candidate)
+	var validated: Dictionary = _chart_data.validate(candidate, _scroll_speed)
 	if validated.get("status") != &"ok":
 		_set_status(String(validated.get("reason", "Chart could not be cleared.")))
 		return false
@@ -70,7 +77,7 @@ func load_chart() -> void:
 	load_requested.emit()
 
 func apply_loaded_chart(chart: Dictionary) -> bool:
-	var validated: Dictionary = _chart_data.validate(chart)
+	var validated: Dictionary = _chart_data.validate(chart, _scroll_speed)
 	if validated.get("status") != &"ok":
 		_set_status(String(validated.get("reason", "Chart file is invalid.")))
 		return false
@@ -80,7 +87,7 @@ func apply_loaded_chart(chart: Dictionary) -> bool:
 	return true
 
 func save_chart() -> bool:
-	var validated: Dictionary = _chart_data.validate(_chart)
+	var validated: Dictionary = _chart_data.validate(_chart, _scroll_speed)
 	if validated.get("status") != &"ok":
 		_set_status(String(validated.get("reason", "Chart is invalid.")))
 		return false
@@ -89,7 +96,7 @@ func save_chart() -> bool:
 	return true
 
 func play_chart() -> bool:
-	var gameplay_chart: Dictionary = _chart_data.to_gameplay(_chart)
+	var gameplay_chart: Dictionary = _chart_data.to_gameplay(_chart, _scroll_speed)
 	if gameplay_chart.get("status") != &"ok":
 		_set_status(String(gameplay_chart.get("reason", "Add an obstacle before playing.")))
 		_refresh_controls()
@@ -131,7 +138,7 @@ func _build_interface() -> void:
 	header.add_child(_track_label)
 
 	var info := Label.new()
-	info.text = "Click a beat to cycle EMPTY → SPIKE → BLOCK → EMPTY. Obstacle spacing is checked as you edit."
+	info.text = "Click a beat to cycle EMPTY → SPIKE → BLOCK → SAW → CRYSTAL → EMPTY. Obstacle spacing is checked as you edit."
 	info.add_theme_color_override("font_color", MUTED)
 	content.add_child(info)
 

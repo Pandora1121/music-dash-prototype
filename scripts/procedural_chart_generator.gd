@@ -3,13 +3,15 @@ extends RefCounted
 const MIN_REACTION_SECONDS := 0.8
 const COLLISION_WIDTH_PIXELS := 48.0
 const PLAYER_WARNING_DISTANCE_PIXELS := 1120.0
+const GameplayProfileScript = preload("res://scripts/gameplay_profile.gd")
 
 func generate(analysis: Dictionary, difficulty: StringName, seed: int, scroll_speed: float) -> Dictionary:
 	if not _is_valid_analysis(analysis) or not is_finite(scroll_speed) or scroll_speed <= 0.0:
 		return _failure("Analysis or scroll speed is invalid.")
-	var density := _density_for(difficulty)
-	if density <= 0.0:
-		return _failure("Unsupported difficulty.")
+	var profile: Dictionary = GameplayProfileScript.new().profile_for(analysis, difficulty)
+	if profile.get("status") != &"ok":
+		return _failure(String(profile.get("reason", "Song profile is invalid.")))
+	var density := float(profile.density)
 	var beat_times: Array = analysis.beat_times
 	var beat_features: Array = analysis.beat_features
 	if beat_times.size() != beat_features.size() or beat_times.is_empty():
@@ -35,9 +37,7 @@ func generate(analysis: Dictionary, difficulty: StringName, seed: int, scroll_sp
 			continue
 		var bass := clampf(float(features.get("bass", 0.0)), 0.0, 1.0)
 		var treble := clampf(float(features.get("treble", 0.0)), 0.0, 1.0)
-		var kind: StringName = &"block" if bass > treble + 0.12 else &"spike"
-		if absf(bass - treble) <= 0.12:
-			kind = &"block" if rng.randf() < 0.5 else &"spike"
+		var kind: StringName = _kind_for_music(bass, treble, rng)
 		events.append({"beat_index": beat_index, "kind": kind})
 		last_target_time = hit_time
 
@@ -47,6 +47,9 @@ func generate(analysis: Dictionary, difficulty: StringName, seed: int, scroll_sp
 		"seed": seed,
 		"difficulty": difficulty,
 		"bpm": float(analysis.bpm),
+		"scroll_speed": scroll_speed,
+		"density": density,
+		"average_intensity": float(profile.average_intensity),
 		"duration_seconds": float(analysis.duration_seconds),
 		"beat_times": beat_times.duplicate(),
 		"events": events,
@@ -83,14 +86,16 @@ func _is_valid_analysis(analysis: Dictionary) -> bool:
 func _is_finite_number(value: Variant) -> bool:
 	return typeof(value) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(value))
 
-func _density_for(difficulty: StringName) -> float:
-	match difficulty:
-		&"Easy": return 0.2
-		&"Normal": return 0.34
-		&"Hard": return 0.48
-		&"Expert": return 0.62
-		&"Insane": return 0.76
-		_: return 0.0
+func _kind_for_music(bass: float, treble: float, rng: RandomNumberGenerator) -> StringName:
+	if bass > treble + 0.12:
+		return &"saw" if bass >= 0.72 else &"block"
+	if treble > bass + 0.12:
+		return &"crystal" if treble >= 0.72 else &"spike"
+	match rng.randi_range(0, 3):
+		0: return &"spike"
+		1: return &"block"
+		2: return &"saw"
+		_: return &"crystal"
 
 func _failure(reason: String) -> Dictionary:
 	return {"status": &"failed", "reason": reason, "seed": 0, "difficulty": &"", "bpm": 0.0, "duration_seconds": 0.0, "beat_times": [], "events": []}

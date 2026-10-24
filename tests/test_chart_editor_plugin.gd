@@ -33,7 +33,7 @@ func _initialize() -> void:
 	if not _expect(chart.beat_times.size() == 20 and chart.events.is_empty(), "new dock chart should have a beat grid and no events"):
 		quit(1)
 		return
-	if not _expect(dock.call("set_beat_event", 8, &"spike") and dock.call("set_beat_event", 10, &"block"), "dock should add fair events by beat index"):
+	if not _expect(dock.call("set_beat_event", 8, &"spike") and dock.call("set_beat_event", 10, &"block") and dock.call("set_beat_event", 12, &"saw") and dock.call("set_beat_event", 14, &"crystal"), "dock should add fair events using all supported kinds"):
 		quit(1)
 		return
 	if not _expect(dock.call("remove_beat_event", 8), "dock should remove an event"):
@@ -57,7 +57,7 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var loaded: Dictionary = data.load_file(dock_path)
-	if not _expect(loaded.get("status") == &"ok" and loaded.chart.name == "renamed plugin chart" and loaded.chart.beat_times == dock.call("current_chart").beat_times and loaded.chart.events == dock.call("current_chart").events, "dock save should retain metadata, beats and events for runtime loading"):
+	if not _expect(loaded.get("status") == &"ok" and loaded.chart.name == "renamed plugin chart" and loaded.chart.beat_times == dock.call("current_chart").beat_times and loaded.chart.events == dock.call("current_chart").events and loaded.chart.events[2].kind == &"saw" and loaded.chart.events[3].kind == &"crystal", "dock save should retain metadata, beats, and added kinds for runtime loading"):
 		quit(1)
 		return
 	if not _expect(not dock.call("set_beat_event", 9, &"spike"), "unfair event spacing should be rejected"):

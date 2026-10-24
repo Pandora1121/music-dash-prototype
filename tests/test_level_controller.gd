@@ -16,6 +16,18 @@ func _initialize() -> void:
 	controller.begin_level()
 	controller.advance(1.0)
 	assert(due_events.size() == 2, "restart should replay the same first chart event")
+	_test_chart_speed_sets_spawn_lead(controller, due_events)
 	controller.queue_free()
 	print("PASS: level controller")
 	quit()
+
+func _test_chart_speed_sets_spawn_lead(controller: Node, due_events: Array[Dictionary]) -> void:
+	controller.reset_level()
+	controller.set_chart({"status": &"ok", "bpm": 120.0, "beat_times": [10.0], "events": [{"beat_index": 0, "kind": &"spike"}], "scroll_speed": 280.0})
+	assert(controller.has_method("scroll_speed") and is_equal_approx(float(controller.call("scroll_speed")), 280.0), "controller should expose chart's obstacle speed")
+	controller.begin_level()
+	var before_spawn := due_events.size()
+	controller.advance(5.99)
+	assert(due_events.size() == before_spawn, "slower hazards should keep their longer travel lead time")
+	controller.advance(6.0)
+	assert(due_events.size() == before_spawn + 1, "slower hazard should spawn at target minus its own travel time")
