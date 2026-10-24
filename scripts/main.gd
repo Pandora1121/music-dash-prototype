@@ -29,6 +29,9 @@ var score_label: Label
 var combo_label: Label
 var accuracy_label: Label
 var judgment_label: Label
+var _next_hit_label: Label
+var _combo_meter: ProgressBar
+var _combo_milestone_label: Label
 var progress_bar: ProgressBar
 var _overlay: PanelContainer
 var _overlay_body_label: Label
@@ -55,6 +58,7 @@ var _pending_chart_save: Dictionary = {}
 var _scorer: RefCounted
 var _progression_store: RefCounted
 var _run_finalized := false
+var _miss_feedback_remaining := 0.0
 var selected_difficulty: StringName = &"Easy"
 @export var progression_profile_path := "user://music_dash_profile.json"
 @export var chart_directory := "user://music_dash_charts"
@@ -82,6 +86,7 @@ func _process(_delta: float) -> void:
 		return
 	var song_position: float = _audio_conductor.song_position()
 	_audio_conductor.consume_beats_until(song_position)
+	_miss_feedback_remaining = maxf(0.0, _miss_feedback_remaining - _delta)
 	for judgment in _scorer.advance_to(song_position):
 		_apply_judgment(judgment)
 	_level.advance(song_position, _audio_conductor.audio_offset_seconds, _audio_conductor.bpm)
@@ -93,7 +98,7 @@ func _process(_delta: float) -> void:
 	if is_instance_valid(progress_bar):
 		progress_bar.max_value = maxf(0.1, float(_prepared_chart.get("duration_seconds", 21.0)))
 		progress_bar.value = clampf(song_position, 0.0, progress_bar.max_value)
-	_update_hud_stats()
+	_update_timing_hud(song_position)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -255,6 +260,7 @@ func _start_run() -> void:
 	screen_state = &"playing"
 	_audio_conductor.start_from(0.0)
 	_jump_count = 0
+	_miss_feedback_remaining = 0.0
 	_run_finalized = false
 	_world = Node2D.new()
 	_world.set_script(load("res://scripts/game_world.gd"))
@@ -634,6 +640,23 @@ func _build_hud() -> void:
 	combo_label.add_theme_font_size_override("font_size", 18)
 	_hud_layer.add_child(combo_label)
 
+	_combo_meter = ProgressBar.new()
+	_combo_meter.name = "ComboMilestoneMeter"
+	_combo_meter.position = Vector2(350, 126)
+	_combo_meter.size = Vector2(250, 8)
+	_combo_meter.min_value = 0.0
+	_combo_meter.max_value = 10.0
+	_combo_meter.show_percentage = false
+	_hud_layer.add_child(_combo_meter)
+
+	_combo_milestone_label = Label.new()
+	_combo_milestone_label.name = "ComboMilestoneHint"
+	_combo_milestone_label.position = Vector2(610, 117)
+	_combo_milestone_label.size = Vector2(180, 28)
+	_combo_milestone_label.add_theme_color_override("font_color", MUTED)
+	_combo_milestone_label.add_theme_font_size_override("font_size", 14)
+	_hud_layer.add_child(_combo_milestone_label)
+
 	accuracy_label = Label.new()
 	accuracy_label.position = Vector2(760, 96)
 	accuracy_label.add_theme_color_override("font_color", MUTED)
@@ -649,6 +672,15 @@ func _build_hud() -> void:
 	judgment_label.text = "HIT THE BEAT"
 	_hud_layer.add_child(judgment_label)
 
+	_next_hit_label = Label.new()
+	_next_hit_label.name = "NextHitCue"
+	_next_hit_label.position = Vector2(28, 214)
+	_next_hit_label.size = Vector2(1224, 32)
+	_next_hit_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_next_hit_label.add_theme_color_override("font_color", ACCENT)
+	_next_hit_label.add_theme_font_size_override("font_size", 22)
+	_hud_layer.add_child(_next_hit_label)
+
 	_status_label = Label.new()
 	_status_label.position = Vector2(28, 138)
 	_status_label.add_theme_color_override("font_color", Color.WHITE)
@@ -661,6 +693,7 @@ func _build_hud() -> void:
 	instruction.add_theme_color_override("font_color", MUTED)
 	_hud_layer.add_child(instruction)
 	_update_hud_stats()
+	_update_timing_hud(0.0)
 
 func _pause_run() -> void:
 	if screen_state != &"playing":
@@ -700,11 +733,14 @@ func _on_player_jumped(position_seconds: float) -> void:
 		_apply_judgment(judgment)
 	if is_instance_valid(_status_label):
 		_status_label.text = "JUMP  %02d" % _jump_count
+	_update_timing_hud(position_seconds)
 
 func _apply_judgment(judgment: Dictionary) -> void:
 	if is_instance_valid(judgment_label):
 		judgment_label.text = String(judgment.judgment).to_upper()
 		judgment_label.add_theme_color_override("font_color", ACCENT if judgment.judgment != &"Miss" else Color("ff5c9a"))
+	if judgment.get("judgment") == &"Miss":
+		_miss_feedback_remaining = 1.2
 	_update_hud_stats()
 
 func _update_hud_stats() -> void:
@@ -715,8 +751,37 @@ func _update_hud_stats() -> void:
 		score_label.text = "SCORE %06d" % int(stats.score)
 	if is_instance_valid(combo_label):
 		combo_label.text = "COMBO %02d  •  BEST %02d" % [int(stats.combo), int(stats.best_combo)]
+	if is_instance_valid(_combo_meter):
+		_combo_meter.value = float(int(stats.combo) % 10)
+	if is_instance_valid(_combo_milestone_label):
+		var hits_to_bonus := 10 - (int(stats.combo) % 10)
+		_combo_milestone_label.text = "NEXT BONUS IN %d" % hits_to_bonus
 	if is_instance_valid(accuracy_label):
 		accuracy_label.text = "ACCURACY %05.1f%%" % (float(stats.accuracy) * 100.0)
+
+func _update_timing_hud(song_position: float) -> void:
+	if not is_instance_valid(_next_hit_label):
+		return
+	if _miss_feedback_remaining > 0.0:
+		_next_hit_label.text = "MISS • COMBO RESET"
+		_next_hit_label.add_theme_color_override("font_color", Color("ff5c9a"))
+		return
+	if _scorer == null:
+		_next_hit_label.text = "WAIT FOR THE BEAT"
+		_next_hit_label.add_theme_color_override("font_color", MUTED)
+		return
+	var target_time := float(_scorer.next_target_time())
+	if target_time < 0.0:
+		_next_hit_label.text = "CHART CLEAR"
+		_next_hit_label.add_theme_color_override("font_color", Color("61ffd6"))
+		return
+	var time_until_hit := target_time - song_position
+	if absf(time_until_hit) <= 0.15:
+		_next_hit_label.text = "JUMP NOW"
+		_next_hit_label.add_theme_color_override("font_color", ACCENT)
+	else:
+		_next_hit_label.text = "JUMP IN %.2fs" % maxf(0.0, time_until_hit)
+		_next_hit_label.add_theme_color_override("font_color", MUTED)
 
 func _on_beat_reached(beat_index: int, _song_position: float) -> void:
 	if screen_state != &"playing":
@@ -828,6 +893,9 @@ func _clear_screen() -> void:
 	combo_label = null
 	accuracy_label = null
 	judgment_label = null
+	_next_hit_label = null
+	_combo_meter = null
+	_combo_milestone_label = null
 	progress_bar = null
 	difficulty_selector = null
 	_difficulty_info_label = null

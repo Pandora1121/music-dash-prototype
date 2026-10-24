@@ -11,6 +11,7 @@ func _initialize() -> void:
 	_test_accuracy_and_empty_chart()
 	_test_summary_does_not_finalize_targets()
 	_test_invalid_target_times_are_rejected()
+	_test_next_target_tracks_scoring_cursor()
 	print("PASS: run scorer")
 	quit()
 
@@ -97,6 +98,18 @@ func _test_invalid_target_times_are_rejected() -> void:
 	assert(not scorer.configure([-0.1]), "negative target times should be rejected")
 	assert(not scorer.configure([1.0, INF]), "mixed valid and non-finite targets should be rejected")
 	assert(scorer.finalize().miss == 0, "invalid chart should not retain a partial target list")
+
+func _test_next_target_tracks_scoring_cursor() -> void:
+	var scorer: RefCounted = RunScorerScript.new()
+	assert(scorer.configure([1.0, 2.0]), "valid targets should configure")
+	assert(scorer.has_method("next_target_time"), "scorer should expose its next unresolved hit time")
+	if not scorer.has_method("next_target_time"):
+		return
+	assert(is_equal_approx(float(scorer.call("next_target_time")), 1.0), "first unresolved hit should be returned")
+	scorer.record_jump(1.0)
+	assert(is_equal_approx(float(scorer.call("next_target_time")), 2.0), "successful judgment should advance the next hit cue")
+	scorer.advance_to(2.150001)
+	assert(float(scorer.call("next_target_time")) == -1.0, "missed final hit should exhaust the cue")
 
 func _test_summary_does_not_finalize_targets() -> void:
 	var scorer: RefCounted = RunScorerScript.new()

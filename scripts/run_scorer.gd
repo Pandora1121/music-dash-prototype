@@ -88,6 +88,9 @@ func finalize() -> Dictionary:
 func get_summary() -> Dictionary:
 	return _summary()
 
+func next_target_time() -> float:
+	return _targets[_cursor] if _cursor < _targets.size() else -1.0
+
 func _record_miss(target_index: int, timing_error: float) -> Dictionary:
 	_miss += 1
 	_combo = 0
