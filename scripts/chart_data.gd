@@ -115,7 +115,7 @@ func serialize(chart: Dictionary, scroll_speed: float = DEFAULT_SCROLL_SPEED) ->
 	for event in json_chart.events:
 		json_events.append({"beat_index": int(event.beat_index), "kind": String(event.kind)})
 	json_chart["events"] = json_events
-	return {"status": &"ok", "reason": "", "text": JSON.stringify(json_chart, "\t")}
+	return {"status": &"ok", "reason": "", "text": JSON.stringify(json_chart, "\t", true, true)}
 
 func load_file(path: String, scroll_speed: float = DEFAULT_SCROLL_SPEED) -> Dictionary:
 	if path.strip_edges().is_empty():
@@ -142,6 +142,7 @@ func save_file(path: String, chart: Dictionary, scroll_speed: float = DEFAULT_SC
 	if file == null:
 		return _failure("Could not save chart file: %s." % FileAccess.get_open_error())
 	file.store_string(encoded.text)
+	file.flush()
 	var write_error := file.get_error()
 	file.close()
 	if write_error != OK:

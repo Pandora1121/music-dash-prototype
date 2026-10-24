@@ -7,6 +7,7 @@ func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
 	_test_empty_chart_and_round_trip()
 	_test_gameplay_conversion()
+	_test_precision_preserves_analyzed_beat_times()
 	_test_rejects_invalid_json_and_schema()
 	_test_rejects_invalid_beats_and_events()
 	_test_rejects_unfair_events()
@@ -49,6 +50,19 @@ func _test_gameplay_conversion() -> void:
 	var converted: Dictionary = data.to_gameplay(schema_chart)
 	assert(converted.get("status") == &"ok", "valid non-empty schema chart should convert for gameplay")
 	assert(converted.get("bpm") == gameplay.bpm and converted.get("events") == gameplay.events, "gameplay conversion should retain timing and obstacle events")
+
+func _test_precision_preserves_analyzed_beat_times() -> void:
+	var data: RefCounted = ChartDataScript.new()
+	var chart := _valid_chart()
+	var precise_times: Array[float] = []
+	for index in range(20):
+		precise_times.append(float(index) * 0.4992743105950744)
+	chart.beat_times = precise_times
+	var encoded: Dictionary = data.serialize(chart)
+	var decoded: Dictionary = data.parse_json(encoded.get("text", ""))
+	assert(decoded.get("status") == &"ok", "chart with measured beat times should serialize and parse")
+	for index in range(precise_times.size()):
+		assert(absf(decoded.chart.beat_times[index] - precise_times[index]) <= 0.0000000001, "JSON round trip should preserve measured beat time within 0.1 nanoseconds")
 
 func _test_rejects_invalid_json_and_schema() -> void:
 	var data: RefCounted = ChartDataScript.new()
